@@ -100,6 +100,18 @@ function invoiceMonthFor(dateISO, closingDay) {
   return target.toISOString().slice(0, 7);
 }
 
+function resolveFatura(cardId, dateISO, closingDay, paidInvoices) {
+  let fatura = invoiceMonthFor(dateISO, closingDay);
+  let guard = 0;
+  while (paidInvoices?.[`${cardId}|${fatura}`] && guard < 24) {
+    const d = new Date(fatura + "-15");
+    d.setMonth(d.getMonth() + 1);
+    fatura = d.toISOString().slice(0, 7);
+    guard++;
+  }
+  return fatura;
+}
+
 function useCalculations(data, selectedMonth) {
   return useMemo(() => {
     const { transactions, payables, receivables, savings, transfers, cards, paidInvoices } = data;
@@ -196,14 +208,16 @@ function useCalculations(data, selectedMonth) {
 function Field({ f, value, onChange }) {
   const base = { width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14, fontFamily: "Inter, sans-serif", background: "#0F1210", color: COLORS.text, outline: "none" };
   if (f.type === "select") {
+    const hasValue = f.options.some(o => (o.value ?? o) === value);
     return (
       <div style={{ display: "flex", gap: 6 }}>
         <select style={base} value={value ?? ""} onChange={e => onChange(f.key, e.target.value)}>
           <option value="" disabled>Selecione…</option>
+          {!hasValue && value && <option value={value}>{value}</option>}
           {f.options.map(o => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
         </select>
         {f.allowAddNew && (
-          <button type="button" onClick={() => f.onAddNew(f.key, onChange)} title="Nova categoria" style={{ flexShrink: 0, width: 38, borderRadius: 10, border: `1px solid ${COLORS.border}`, background: COLORS.surface, color: COLORS.accent, cursor: "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
+          <button type="button" onClick={() => f.onAddNew(f.key, onChange)} title="Adicionar novo" style={{ flexShrink: 0, width: 38, borderRadius: 10, border: `1px solid ${COLORS.border}`, background: COLORS.surface, color: COLORS.accent, cursor: "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
         )}
       </div>
     );
@@ -435,7 +449,7 @@ export default function App() {
           description: parcelas > 1 ? `${base.description} (${i + 1}/${parcelas})` : base.description,
           date: iso, cardId: vals.cardId, status: "aberta",
           installment: parcelas > 1 ? { number: i + 1, total: parcelas, groupId } : undefined,
-          fatura: invoiceMonthFor(iso, closing)
+          fatura: resolveFatura(vals.cardId, iso, closing, data.paidInvoices)
         });
       }
     }
@@ -599,7 +613,7 @@ export default function App() {
           amount: per, date: iso, category: row.category || "Outros", paymentMethod: "Cartão de crédito",
           cardId, status: "aberta",
           installment: parcelas > 1 ? { number: i + 1, total: parcelas, groupId } : undefined,
-          fatura: invoiceMonthFor(iso, closing)
+          fatura: resolveFatura(cardId, iso, closing, data.paidInvoices)
         });
       }
     });
@@ -609,18 +623,35 @@ export default function App() {
     showToast("Compras importadas.");
   };
 
-  const addBulkTransactions = async (rows, type, alreadySettled = true) => {
+  const addBulkTransactions = async (rows, type, alreadySettled = true, repeatUntil = null) => {
     const clean = rows.filter(r => r.description && r.amount);
     if (clean.length === 0) return;
+
+    const expandRow = (r) => {
+      if (!repeatUntil) return [{ ...r, date: r.date || todayISO() }];
+      const out = [];
+      let dt = new Date((r.date || todayISO()) + "T00:00:00");
+      const [endY, endM] = repeatUntil.split("-").map(Number);
+      const endMarker = endY * 12 + (endM - 1);
+      let guard = 0;
+      while (dt.getFullYear() * 12 + dt.getMonth() <= endMarker && guard < 120) {
+        out.push({ ...r, date: dt.toISOString().slice(0, 10) });
+        dt.setMonth(dt.getMonth() + 1);
+        guard++;
+      }
+      return out;
+    };
+
     if (!alreadySettled) {
+      const expanded = clean.flatMap(expandRow);
       if (type === "despesa") {
-        await db.insertPayables(userId, clean.map(r => ({ description: r.description, amount: parseFloat(r.amount) || 0, dueDate: r.date || todayISO(), category: r.category || "Outros", recurring: false, periodicity: "Mensal", status: "a_vencer" })));
+        await db.insertPayables(userId, expanded.map(r => ({ description: r.description, amount: parseFloat(r.amount) || 0, dueDate: r.date, category: r.category || "Outros", recurring: !!repeatUntil, periodicity: "Mensal", status: "a_vencer" })));
       } else {
-        await db.insertTransactions(userId, clean.map(r => ({ type: "receita", description: r.description, amount: parseFloat(r.amount) || 0, date: r.date || todayISO(), category: r.category || "Outros", status: "prevista", account: "Conta corrente" })));
+        await db.insertTransactions(userId, expanded.map(r => ({ type: "receita", description: r.description, amount: parseFloat(r.amount) || 0, date: r.date, category: r.category || "Outros", status: "prevista", account: "Conta corrente", recurring: !!repeatUntil })));
       }
       await refresh();
       setModal(null);
-      showToast(`${clean.length} ${type === "despesa" ? "contas adicionadas em Contas a pagar." : "receitas previstas adicionadas."}`);
+      showToast(`${expanded.length} ${type === "despesa" ? "contas adicionadas em Contas a pagar." : "receitas previstas adicionadas."}`);
       return;
     }
     const txRows = clean.map(r => ({
@@ -643,6 +674,7 @@ export default function App() {
   };
 
   const payInvoice = async (cardId, faturaKey) => { await db.markInvoicePaid(userId, cardId, faturaKey); await refresh(); };
+  const unpayInvoice = async (cardId, faturaKey) => { await db.unmarkInvoicePaid(userId, cardId, faturaKey); await refresh(); };
 
   const removeItem = async (table, id) => { await db.deleteRow(table, userId, id); await refresh(); };
 
@@ -673,6 +705,11 @@ export default function App() {
     await db.addCategory(userId, name);
     await refresh();
     onChange(fieldKey, name);
+  };
+
+  const promptFreeText = (question) => (fieldKey, onChange) => {
+    const val = prompt(question);
+    if (val) onChange(fieldKey, val);
   };
 
   const saveGoal = async () => {
@@ -931,12 +968,13 @@ export default function App() {
               <div key={fk} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18, marginBottom: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div>
-                    <div style={{ fontSize: 13, color: COLORS.textSoft, fontWeight: 600 }}>Fatura {new Date(fk + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</div>
+                    <div style={{ fontSize: 13, color: COLORS.textSoft, fontWeight: 600 }}>Fatura {monthLabel(fk)}</div>
                     <div style={{ fontFamily: "Fraunces, serif", fontSize: 24, fontWeight: 600, color: COLORS.text }}>{money(inv.total)}</div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
                     <StatusBadge status={status} />
                     {!paid && <button onClick={() => payInvoice(selectedCard, fk)} style={{ ...btnPrimary, padding: "8px 14px", fontSize: 12.5, marginTop: 0 }}>Marcar como paga</button>}
+                    {paid && <button onClick={() => unpayInvoice(selectedCard, fk)} style={{ background: "none", border: `1px solid ${COLORS.border}`, color: COLORS.textSoft, borderRadius: 10, padding: "8px 14px", fontSize: 12.5, cursor: "pointer" }}>Desmarcar paga</button>}
                   </div>
                 </div>
                 <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1416,7 +1454,7 @@ export default function App() {
           initial={{ type: "Poupança" }}
           fields={[
             { key: "name", label: "Nome", required: true, placeholder: "Ex: Reserva de emergência" },
-            { key: "type", label: "Tipo", type: "select", options: ["Poupança", "Investimentos", "Conta digital", "Espécie", "Outros"] },
+            { key: "type", label: "Tipo", type: "select", options: ["Poupança", "Investimentos", "Conta digital", "Espécie", "Outros"], allowAddNew: true, onAddNew: promptFreeText("Nome do novo tipo:") },
             { key: "balance", label: "Saldo atual", type: "number", required: true },
             { key: "note", label: "Observação" }
           ]} />
@@ -1427,7 +1465,7 @@ export default function App() {
           initial={modal.initial}
           fields={[
             { key: "name", label: "Nome", required: true },
-            { key: "type", label: "Tipo", type: "select", options: ["Poupança", "Investimentos", "Conta digital", "Espécie", "Outros"] },
+            { key: "type", label: "Tipo", type: "select", options: ["Poupança", "Investimentos", "Conta digital", "Espécie", "Outros"], allowAddNew: true, onAddNew: promptFreeText("Nome do novo tipo:") },
             { key: "balance", label: "Saldo atual", type: "number", required: true },
             { key: "note", label: "Observação" }
           ]} />
@@ -1641,6 +1679,8 @@ function TransactionModal({ data, onClose, onSubmit, onSubmitPending, onAddCateg
 function BulkTransactionModal({ data, onClose, onSubmit }) {
   const [type, setType] = useState("despesa");
   const [alreadySettled, setAlreadySettled] = useState(true);
+  const [recurring, setRecurring] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState("");
   const [rows, setRows] = useState([{ description: "", amount: "", category: data.categories[0], date: todayISO() }]);
   const [saving, setSaving] = useState(false);
 
@@ -1650,7 +1690,7 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
 
   const submit = async () => {
     setSaving(true);
-    await onSubmit(rows, type, alreadySettled);
+    await onSubmit(rows, type, alreadySettled, recurring && !alreadySettled ? repeatUntil : null);
     setSaving(false);
   };
 
@@ -1674,6 +1714,24 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
         </div>
         {!alreadySettled && <div style={{ fontSize: 11.5, color: COLORS.textSoft, marginTop: 6 }}>{type === "despesa" ? "Vão aparecer em Contas a pagar, com a data como vencimento." : "Vão aparecer em Receitas como previstas."}</div>}
       </div>
+
+      {!alreadySettled && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSoft, marginBottom: 6 }}>Todas essas são recorrentes (repetem todo mês)?</div>
+          <div style={{ display: "flex", gap: 8, maxWidth: 300, marginBottom: recurring ? 10 : 0 }}>
+            {["Sim", "Não"].map(opt => (
+              <button key={opt} type="button" onClick={() => setRecurring(opt === "Sim")}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${(recurring === (opt === "Sim")) ? COLORS.accent : COLORS.border}`, background: (recurring === (opt === "Sim")) ? COLORS.accentSoft : COLORS.surface, color: (recurring === (opt === "Sim")) ? COLORS.accent : COLORS.textSoft }}>{opt}</button>
+            ))}
+          </div>
+          {recurring && (
+            <div style={{ maxWidth: 200 }}>
+              <label style={{ fontSize: 12, color: COLORS.textSoft, display: "block", marginBottom: 4 }}>Repetir todo mês até</label>
+              <input style={{ ...inputStyle, width: "100%" }} type="month" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} />
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
         {rows.map((r, i) => (
