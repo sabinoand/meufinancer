@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutDashboard, Wallet, CreditCard, ShoppingCart, CalendarClock, HandCoins,
   PiggyBank, BarChart3, Settings, Plus, X, ArrowUpRight, ArrowDownRight,
-  ChevronRight, Check, Trash2, Bell, TrendingUp, TrendingDown, Wallet2, LogOut, Pencil, Layers
+  ChevronRight, Check, Trash2, Bell, TrendingUp, TrendingDown, Wallet2, LogOut, Pencil, Layers, Eye, EyeOff
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -19,6 +19,17 @@ import * as db from "./db.js";
 const PAYMENT_METHODS = ["Dinheiro", "Pix", "Débito", "Cartão de crédito", "Transferência", "Outros"];
 
 const APP_CHANGELOG = [
+  {
+    version: "1.5.0",
+    items: [
+      "Modo apresentação: ícone de olho no topo esconde todos os valores com um clique",
+      "Fatura do cartão: corrigido o mês errado aparecendo por causa de fuso horário",
+      "Compra nova em fatura já paga agora vai automaticamente pra próxima fatura",
+      "Opção de desmarcar uma fatura como paga",
+      "Lançamento em lote agora também pergunta se é recorrente",
+      "Tipo de \"Dinheiro guardado\" agora pode ser personalizado"
+    ]
+  },
   {
     version: "1.4.0",
     items: [
@@ -354,6 +365,8 @@ export default function App() {
   const [dashboardMonth, setDashboardMonth] = useState(todayISO().slice(0, 7));
   const [goalInput, setGoalInput] = useState("");
   const [showChangelog, setShowChangelog] = useState(false);
+  const [hideValues, setHideValues] = useState(false);
+  const fmt = (v) => hideValues ? "R$ ••••••" : money(v);
   const passkeySupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
 
   useEffect(() => {
@@ -756,11 +769,11 @@ export default function App() {
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
-          <StatCard label="Saldo disponível" value={money(calc.saldo)} icon={Wallet2} tone="accent" sub="Disponível para gastar" />
-          <StatCard label="Receitas do mês" value={money(calc.receitasMes)} icon={TrendingUp} tone="positive" sub={receitaDelta !== null ? `${receitaDelta >= 0 ? "+" : ""}${receitaDelta}% vs mês anterior` : "Sem comparação"} />
-          <StatCard label="Despesas do mês" value={money(calc.despesasMes)} icon={TrendingDown} tone="negative" sub={despesaDelta !== null ? `${despesaDelta >= 0 ? "+" : ""}${despesaDelta}% vs mês anterior` : "Sem comparação"} />
-          <StatCard label="Resultado do mês" value={money(calc.resultadoMes)} icon={resultPositive ? ArrowUpRight : ArrowDownRight} tone={resultPositive ? "positive" : "negative"} sub={resultPositive ? "Positivo" : "Negativo"} />
-          <StatCard label="Dinheiro guardado" value={money(calc.totalGuardado)} icon={PiggyBank} tone="gold" sub={`${data.savings.length} locais`} />
+          <StatCard label="Saldo disponível" value={fmt(calc.saldo)} icon={Wallet2} tone="accent" sub="Disponível para gastar" />
+          <StatCard label="Receitas do mês" value={fmt(calc.receitasMes)} icon={TrendingUp} tone="positive" sub={receitaDelta !== null ? `${receitaDelta >= 0 ? "+" : ""}${receitaDelta}% vs mês anterior` : "Sem comparação"} />
+          <StatCard label="Despesas do mês" value={fmt(calc.despesasMes)} icon={TrendingDown} tone="negative" sub={despesaDelta !== null ? `${despesaDelta >= 0 ? "+" : ""}${despesaDelta}% vs mês anterior` : "Sem comparação"} />
+          <StatCard label="Resultado do mês" value={fmt(calc.resultadoMes)} icon={resultPositive ? ArrowUpRight : ArrowDownRight} tone={resultPositive ? "positive" : "negative"} sub={resultPositive ? "Positivo" : "Negativo"} />
+          <StatCard label="Dinheiro guardado" value={fmt(calc.totalGuardado)} icon={PiggyBank} tone="gold" sub={`${data.savings.length} locais`} />
         </div>
 
         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 18, padding: 20 }}>
@@ -768,15 +781,15 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 12, color: COLORS.textSoft }}>Vai receber (previsto)</div>
-              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: COLORS.accent, fontWeight: 600 }}>{money(calc.receitasPrevistas)}</div>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: COLORS.accent, fontWeight: 600 }}>{fmt(calc.receitasPrevistas)}</div>
             </div>
             <div>
               <div style={{ fontSize: 12, color: COLORS.textSoft }}>Despesas programadas</div>
-              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: COLORS.negative, fontWeight: 600 }}>{money(calc.despesasProgramadas)}</div>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: COLORS.negative, fontWeight: 600 }}>{fmt(calc.despesasProgramadas)}</div>
             </div>
             <div>
               <div style={{ fontSize: 12, color: COLORS.textSoft }}>Resultado projetado</div>
-              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: calc.resultadoProgramado >= 0 ? COLORS.accent : COLORS.negative, fontWeight: 600 }}>{money(calc.resultadoProgramado)}</div>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: calc.resultadoProgramado >= 0 ? COLORS.accent : COLORS.negative, fontWeight: 600 }}>{fmt(calc.resultadoProgramado)}</div>
             </div>
           </div>
 
@@ -790,7 +803,7 @@ export default function App() {
               tips.push("Dá pra melhorar um pouco a economia desse mês — toda sobra ajuda.");
             }
             if (calc.despesasPorCategoria[0]) {
-              tips.push(`Sua maior categoria de gasto é "${calc.despesasPorCategoria[0].name}" (${money(calc.despesasPorCategoria[0].value)}). Vale olhar se dá pra reduzir aí.`);
+              tips.push(`Sua maior categoria de gasto é "${calc.despesasPorCategoria[0].name}" (${fmt(calc.despesasPorCategoria[0].value)}). Vale olhar se dá pra reduzir aí.`);
             }
             return (
               <div style={{ background: COLORS.accentSoft, borderRadius: 12, padding: 14, marginBottom: 16 }}>
@@ -808,7 +821,7 @@ export default function App() {
             {data.settings.savingsGoal > 0 && (
               <div>
                 <div style={{ fontSize: 12.5, color: COLORS.textSoft, marginBottom: 6 }}>
-                  Guardado esse mês: {money(calc.transferToSavingsMes)} de {money(data.settings.savingsGoal)}
+                  Guardado esse mês: {fmt(calc.transferToSavingsMes)} de {fmt(data.settings.savingsGoal)}
                   {calc.transferToSavingsMes >= data.settings.savingsGoal ? " 🎉 meta batida!" : ""}
                 </div>
                 <div style={{ height: 7, background: COLORS.bg, borderRadius: 4 }}>
@@ -837,7 +850,7 @@ export default function App() {
                 <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 12, fill: COLORS.textSoft }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: COLORS.textSoft }} axisLine={false} tickLine={false} tickFormatter={v => `${v / 1000}k`} />
-                <Tooltip formatter={v => money(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
+                <Tooltip formatter={v => fmt(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
                 <Area type="monotone" dataKey="receitas" stroke={COLORS.accent} fill="url(#gRec)" strokeWidth={2} name="Receitas" />
                 <Area type="monotone" dataKey="despesas" stroke={COLORS.negative} fill="url(#gDes)" strokeWidth={2} name="Despesas" />
               </AreaChart>
@@ -854,7 +867,7 @@ export default function App() {
                   <Pie data={calc.despesasPorCategoria} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
                     {calc.despesasPorCategoria.map((_, i) => <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />)}
                   </Pie>
-                  <Tooltip formatter={v => money(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -869,7 +882,7 @@ export default function App() {
                 <div key={c.id} style={{ marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 5 }}>
                     <span style={{ fontWeight: 600, color: COLORS.text }}>{c.name}</span>
-                    <span style={{ color: COLORS.textSoft }}>{money(c.used)} / {money(c.limit)}</span>
+                    <span style={{ color: COLORS.textSoft }}>{fmt(c.used)} / {fmt(c.limit)}</span>
                   </div>
                   <div style={{ height: 6, background: COLORS.bg, borderRadius: 4 }}>
                     <div style={{ height: 6, width: `${c.pct}%`, background: c.pct >= 90 ? COLORS.negative : c.pct >= 80 ? COLORS.gold : COLORS.accent, borderRadius: 4 }} />
@@ -884,7 +897,7 @@ export default function App() {
               upcomingPayables.map(p => (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}` }}>
                   <span style={{ color: COLORS.text }}>{p.description}</span>
-                  <span style={{ color: COLORS.textSoft }}>{money(p.amount)} · {fmtDate(p.dueDate)}</span>
+                  <span style={{ color: COLORS.textSoft }}>{fmt(p.amount)} · {fmtDate(p.dueDate)}</span>
                 </div>
               ))}
           </div>
@@ -895,7 +908,7 @@ export default function App() {
               upcomingReceivables.map(r => (
                 <div key={r.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}` }}>
                   <span style={{ color: COLORS.text }}>{r.who}</span>
-                  <span style={{ color: COLORS.textSoft }}>{money(r.amount)} · {fmtDate(r.dueDate)}</span>
+                  <span style={{ color: COLORS.textSoft }}>{fmt(r.amount)} · {fmtDate(r.dueDate)}</span>
                 </div>
               ))}
           </div>
@@ -914,7 +927,7 @@ export default function App() {
       <RowCard key={t.id}
         left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{t.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{t.category} · {fmtDate(t.date)}</div></>}
         right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700, color: COLORS.accent, fontSize: 14.5 }}>{money(t.amount)}</span>
+          <span style={{ fontWeight: 700, color: COLORS.accent, fontSize: 14.5 }}>{fmt(t.amount)}</span>
           <StatusBadge status={t.status} />
           {t.status !== "recebida" && <button onClick={() => markIncomeReceived(t.id)} style={iconBtn} title="Marcar como recebida"><Check size={14} /></button>}
           <button onClick={() => removeItem("transactions", t.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
@@ -969,7 +982,7 @@ export default function App() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div>
                     <div style={{ fontSize: 13, color: COLORS.textSoft, fontWeight: 600 }}>Fatura {monthLabel(fk)}</div>
-                    <div style={{ fontFamily: "Fraunces, serif", fontSize: 24, fontWeight: 600, color: COLORS.text }}>{money(inv.total)}</div>
+                    <div style={{ fontFamily: "Fraunces, serif", fontSize: 24, fontWeight: 600, color: COLORS.text }}>{fmt(inv.total)}</div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
                     <StatusBadge status={status} />
@@ -981,7 +994,7 @@ export default function App() {
                   {inv.items.map(it => (
                     <div key={it.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.8 }}>
                       <span style={{ color: COLORS.text }}>{it.description} <span style={{ color: COLORS.textSoft }}>· {it.category}</span></span>
-                      <span style={{ color: COLORS.textSoft }}>{money(it.amount)} · {fmtDate(it.date)}</span>
+                      <span style={{ color: COLORS.textSoft }}>{fmt(it.amount)} · {fmtDate(it.date)}</span>
                     </div>
                   ))}
                 </div>
@@ -1006,11 +1019,11 @@ export default function App() {
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.85 }}>{c.bank}</div>
-                  <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, fontWeight: 600, margin: "4px 0" }}>{money(c.used)} <span style={{ fontSize: 12.5, opacity: 0.8, fontFamily: "Inter, sans-serif" }}>/ {money(c.limit)}</span></div>
+                  <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, fontWeight: 600, margin: "4px 0" }}>{fmt(c.used)} <span style={{ fontSize: 12.5, opacity: 0.8, fontFamily: "Inter, sans-serif" }}>/ {fmt(c.limit)}</span></div>
                   <div style={{ height: 5, background: "rgba(255,255,255,0.3)", borderRadius: 4 }}>
                     <div style={{ height: 5, width: `${c.pct}%`, background: "#fff", borderRadius: 4 }} />
                   </div>
-                  <div style={{ fontSize: 11, opacity: 0.9, marginTop: 6, fontWeight: 600 }}>Disponível: {money(Math.max(0, c.limit - c.used))}</div>
+                  <div style={{ fontSize: 11, opacity: 0.9, marginTop: 6, fontWeight: 600 }}>Disponível: {fmt(Math.max(0, c.limit - c.used))}</div>
                   <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Fecha dia {c.closingDay} · Vence dia {c.dueDay}</div>
                 </div>
               </div>
@@ -1028,7 +1041,7 @@ export default function App() {
           <RowCard key={t.id}
             left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{t.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{t.category} · {fmtDate(t.date)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ""}</div></>}
             right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontWeight: 700, fontSize: 14.5, color: t.type === "receita" ? COLORS.accent : COLORS.negative }}>{t.type === "receita" ? "+" : "−"}{money(t.amount)}</span>
+              <span style={{ fontWeight: 700, fontSize: 14.5, color: t.type === "receita" ? COLORS.accent : COLORS.negative }}>{t.type === "receita" ? "+" : "−"}{fmt(t.amount)}</span>
               <button onClick={() => removeItem("transactions", t.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
             </div>}
           />
@@ -1047,7 +1060,7 @@ export default function App() {
       <RowCard key={p.id}
         left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{p.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{p.category} · vence {fmtDate(p.dueDate)}{p.recurring ? ` · ${p.periodicity}` : ""}</div></>}
         right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{money(p.amount)}</span>
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{fmt(p.amount)}</span>
           <StatusBadge status={p.status} />
           {p.status !== "pago" && <button onClick={() => markPayablePaid(p.id)} style={iconBtn} title="Marcar como paga"><Check size={14} /></button>}
           <button onClick={() => openEditPayable(p)} style={iconBtn}><Pencil size={13} /></button>
@@ -1086,7 +1099,7 @@ export default function App() {
       <RowCard key={r.id}
         left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{r.who} — {r.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{r.category} · previsto {fmtDate(r.dueDate)}</div></>}
         right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{money(r.amount)}</span>
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{fmt(r.amount)}</span>
           <StatusBadge status={r.status} />
           {r.status === "a_receber" && <button onClick={() => markReceivableReceived(r.id)} style={iconBtn} title="Marcar como recebido"><Check size={14} /></button>}
           <button onClick={() => openEditReceivable(r)} style={iconBtn}><Pencil size={13} /></button>
@@ -1119,13 +1132,13 @@ export default function App() {
     <ListPage title="Dinheiro guardado" actionLabel="+ Novo local" onAction={() => setModal({ type: "savings" })} extraAction={{ label: "Transferir", onClick: () => setModal({ type: "transfer" }) }}>
       <div style={{ background: COLORS.inkSoft, borderRadius: 16, padding: 20, color: "#fff", marginBottom: 16 }}>
         <div style={{ fontSize: 12.5, opacity: 0.75, fontWeight: 600 }}>Patrimônio guardado total</div>
-        <div style={{ fontFamily: "Fraunces, serif", fontSize: 28, fontWeight: 600 }}>{money(calc.totalGuardado)}</div>
+        <div style={{ fontFamily: "Fraunces, serif", fontSize: 28, fontWeight: 600 }}>{fmt(calc.totalGuardado)}</div>
       </div>
       {data.savings.length === 0 ? <EmptyState text="Nenhum local cadastrado." /> : data.savings.map(s => (
         <RowCard key={s.id}
           left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{s.name}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{s.type}</div></>}
           right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.gold }}>{money(s.balance)}</span>
+            <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.gold }}>{fmt(s.balance)}</span>
             <button onClick={() => openEditSavings(s)} style={iconBtn}><Pencil size={13} /></button>
             <button onClick={() => removeItem("savings", s.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
           </div>}
@@ -1150,10 +1163,10 @@ export default function App() {
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <h2 style={{ fontFamily: "Fraunces, serif", fontSize: 22, color: COLORS.text, margin: 0 }}>Relatórios</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
-          <StatCard label="Receita total" value={money(totalReceitas)} icon={TrendingUp} tone="positive" />
-          <StatCard label="Despesa total" value={money(totalDespesas)} icon={TrendingDown} tone="negative" />
-          <StatCard label="Resultado" value={money(totalReceitas - totalDespesas)} icon={ArrowUpRight} />
-          <StatCard label="Gasto em cartões" value={money(totalCartoes)} icon={CreditCard} tone="gold" />
+          <StatCard label="Receita total" value={fmt(totalReceitas)} icon={TrendingUp} tone="positive" />
+          <StatCard label="Despesa total" value={fmt(totalDespesas)} icon={TrendingDown} tone="negative" />
+          <StatCard label="Resultado" value={fmt(totalReceitas - totalDespesas)} icon={ArrowUpRight} />
+          <StatCard label="Gasto em cartões" value={fmt(totalCartoes)} icon={CreditCard} tone="gold" />
           <StatCard label="Taxa de economia" value={`${calc.taxaEconomia}%`} icon={PiggyBank} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }} className="mf-grid-2">
@@ -1163,7 +1176,7 @@ export default function App() {
               <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 3, background: CHART_PALETTE[i % CHART_PALETTE.length] }} />
                 <div style={{ flex: 1, fontSize: 13, color: COLORS.text }}>{c.name}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text }}>{money(c.value)}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text }}>{fmt(c.value)}</div>
               </div>
             ))}
           </div>
@@ -1175,7 +1188,7 @@ export default function App() {
                   <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 12, fill: COLORS.textSoft }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: COLORS.textSoft }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={v => money(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
                   <Bar dataKey="value" fill={COLORS.accent} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -1189,7 +1202,7 @@ export default function App() {
               <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 12, fill: COLORS.textSoft }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: COLORS.textSoft }} axisLine={false} tickLine={false} tickFormatter={v => `${v / 1000}k`} />
-              <Tooltip formatter={v => money(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
+              <Tooltip formatter={v => fmt(v)} contentStyle={{ borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 12.5 }} />
               <Legend wrapperStyle={{ fontSize: 12.5 }} />
               <Bar dataKey="receitas" fill={COLORS.accent} name="Receitas" radius={[6, 6, 0, 0]} />
               <Bar dataKey="despesas" fill={COLORS.negative} name="Despesas" radius={[6, 6, 0, 0]} />
@@ -1306,14 +1319,17 @@ export default function App() {
         })}
         <div style={{ marginTop: "auto", padding: "14px 12px 0", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
           <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.45)" }}>Saldo disponível</div>
-          <div style={{ fontFamily: "Fraunces, serif", fontSize: 18, color: "#fff", fontWeight: 600 }}>{money(calc.saldo)}</div>
+          <div style={{ fontFamily: "Fraunces, serif", fontSize: 18, color: "#fff", fontWeight: 600 }}>{fmt(calc.saldo)}</div>
           <button onClick={logout} style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", padding: 0 }}><LogOut size={13} /> Sair</button>
           <div style={{ marginTop: 14, fontSize: 10.5, color: "rgba(255,255,255,0.3)" }}>Elaborado por Sabino</div>
         </div>
       </div>
 
       <div className="mf-main" style={{ marginLeft: 232, padding: "28px 30px 60px", minHeight: "100vh", position: "relative" }}>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 6 }}>
+          <button onClick={() => setHideValues(v => !v)} title={hideValues ? "Mostrar valores" : "Ocultar valores (modo apresentação)"} style={{ background: hideValues ? COLORS.accentSoft : COLORS.surface, border: `1px solid ${hideValues ? COLORS.accent : COLORS.border}`, borderRadius: 10, padding: 9, cursor: "pointer" }}>
+            {hideValues ? <EyeOff size={15} color={COLORS.accent} /> : <Eye size={15} color={COLORS.textSoft} />}
+          </button>
           <button onClick={() => showToast("Sem novos alertas.")} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 9, cursor: "pointer" }}><Bell size={15} color={COLORS.textSoft} /></button>
         </div>
 
