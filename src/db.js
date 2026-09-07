@@ -56,7 +56,8 @@ export async function loadAllData(userId) {
       username: settingsRes.data?.username || "",
       currency: settingsRes.data?.currency || "BRL",
       theme: settingsRes.data?.theme || "light",
-      alertLimits: settingsRes.data?.alert_limits || [80, 90, 95]
+      alertLimits: settingsRes.data?.alert_limits || [80, 90, 95],
+      savingsGoal: Number(settingsRes.data?.savings_goal || 0)
     },
     categories: (catRes.data || []).map(c => c.name),
     cards: (cardsRes.data || []).map(cardFromRow),
@@ -76,6 +77,7 @@ export async function updateSettings(userId, patch) {
   if (patch.currency !== undefined) row.currency = patch.currency;
   if (patch.theme !== undefined) row.theme = patch.theme;
   if (patch.isDemo !== undefined) row.is_demo = patch.isDemo;
+  if (patch.savingsGoal !== undefined) row.savings_goal = patch.savingsGoal;
   row.updated_at = new Date().toISOString();
   await supabase.from("settings").update(row).eq("user_id", userId);
 }
@@ -100,12 +102,24 @@ export async function deleteRow(table, userId, id) {
 export async function insertCard(userId, c) {
   await supabase.from("cards").insert(cardToRow(c, userId));
 }
+export async function updateCard(userId, id, c) {
+  await supabase.from("cards").update({
+    name: c.name, bank: c.bank, limit_amount: c.limit, due_day: c.dueDay,
+    closing_day: c.closingDay, color: c.color
+  }).eq("id", id).eq("user_id", userId);
+}
 
 export async function insertPayable(userId, p) {
   await supabase.from("payables").insert(payableToRow(p, userId));
 }
 export async function updatePayable(userId, id, patch) {
   await supabase.from("payables").update(patch).eq("id", id).eq("user_id", userId);
+}
+export async function updatePayableFull(userId, id, p) {
+  await supabase.from("payables").update({
+    description: p.description, amount: parseFloat(p.amount) || 0, due_date: p.dueDate,
+    category: p.category, recurring: p.recurring === true, periodicity: p.periodicity, note: p.note || null
+  }).eq("id", id).eq("user_id", userId);
 }
 
 export async function insertReceivable(userId, r) {
@@ -114,12 +128,23 @@ export async function insertReceivable(userId, r) {
 export async function updateReceivable(userId, id, patch) {
   await supabase.from("receivables").update(patch).eq("id", id).eq("user_id", userId);
 }
+export async function updateReceivableFull(userId, id, r) {
+  await supabase.from("receivables").update({
+    who: r.who, description: r.description, amount: parseFloat(r.amount) || 0,
+    due_date: r.dueDate, category: r.category, note: r.note || null
+  }).eq("id", id).eq("user_id", userId);
+}
 
 export async function insertSavings(userId, s) {
   await supabase.from("savings").insert(savingsToRow(s, userId));
 }
 export async function updateSavingsBalance(userId, id, balance) {
   await supabase.from("savings").update({ balance }).eq("id", id).eq("user_id", userId);
+}
+export async function updateSavingsFull(userId, id, s) {
+  await supabase.from("savings").update({
+    name: s.name, type: s.type, balance: parseFloat(s.balance) || 0, note: s.note || null
+  }).eq("id", id).eq("user_id", userId);
 }
 
 export async function insertTransfer(userId, t) {
