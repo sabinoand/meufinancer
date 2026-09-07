@@ -57,7 +57,8 @@ export async function loadAllData(userId) {
       currency: settingsRes.data?.currency || "BRL",
       theme: settingsRes.data?.theme || "light",
       alertLimits: settingsRes.data?.alert_limits || [80, 90, 95],
-      savingsGoal: Number(settingsRes.data?.savings_goal || 0)
+      savingsGoal: Number(settingsRes.data?.savings_goal || 0),
+      lastSeenVersion: settingsRes.data?.last_seen_version || null
     },
     categories: (catRes.data || []).map(c => c.name),
     cards: (cardsRes.data || []).map(cardFromRow),
@@ -78,6 +79,7 @@ export async function updateSettings(userId, patch) {
   if (patch.theme !== undefined) row.theme = patch.theme;
   if (patch.isDemo !== undefined) row.is_demo = patch.isDemo;
   if (patch.savingsGoal !== undefined) row.savings_goal = patch.savingsGoal;
+  if (patch.lastSeenVersion !== undefined) row.last_seen_version = patch.lastSeenVersion;
   row.updated_at = new Date().toISOString();
   await supabase.from("settings").update(row).eq("user_id", userId);
 }
@@ -111,6 +113,9 @@ export async function updateCard(userId, id, c) {
 
 export async function insertPayable(userId, p) {
   await supabase.from("payables").insert(payableToRow(p, userId));
+}
+export async function insertPayables(userId, rows) {
+  await supabase.from("payables").insert(rows.map(p => payableToRow(p, userId)));
 }
 export async function updatePayable(userId, id, patch) {
   await supabase.from("payables").update(patch).eq("id", id).eq("user_id", userId);
