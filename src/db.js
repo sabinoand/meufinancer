@@ -162,6 +162,9 @@ export async function insertTransfer(userId, t) {
 export async function markInvoicePaid(userId, cardId, fatura) {
   await supabase.from("paid_invoices").insert({ user_id: userId, card_id: cardId, fatura });
 }
+export async function unmarkInvoicePaid(userId, cardId, fatura) {
+  await supabase.from("paid_invoices").delete().eq("user_id", userId).eq("card_id", cardId).eq("fatura", fatura);
+}
 
 export async function wipeAllData(userId) {
   await Promise.all([
