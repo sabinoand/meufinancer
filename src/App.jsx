@@ -18,6 +18,29 @@ import * as db from "./db.js";
 
 const PAYMENT_METHODS = ["Dinheiro", "Pix", "Débito", "Cartão de crédito", "Transferência", "Outros"];
 
+const APP_CHANGELOG = [
+  {
+    version: "1.4.0",
+    items: [
+      "Notificação de novidades a cada atualização do app",
+      "Contas e receitas recorrentes agora geram todos os meses de uma vez, até o mês que você escolher",
+      "Contas a pagar mostram o total de cada mês",
+      "Faturas futuras do cartão aparecem separadas das fechadas"
+    ]
+  },
+  {
+    version: "1.3.0",
+    items: [
+      "Editar cartões, contas a pagar, a receber e dinheiro guardado",
+      "Categoria nova direto do formulário",
+      "Vários lançamentos de uma vez",
+      "Importar compras existentes do cartão com parcelas",
+      "Filtro de mês e resumo do mês no Dashboard, com meta de guardar dinheiro"
+    ]
+  }
+];
+const APP_VERSION = APP_CHANGELOG[0].version;
+
 const COLORS = {
   bg: "#0A0C0B", surface: "#141714", ink: "#000000", inkSoft: "#101210",
   accent: "#22C55E", accentSoft: "rgba(34,197,94,0.14)", negative: "#EF5350",
@@ -48,8 +71,13 @@ function groupByMonth(items, dateKey, order = "desc") {
   const keys = Object.keys(map).sort((a, b) => order === "asc" ? a.localeCompare(b) : b.localeCompare(a));
   return keys.map(mk => ({ month: mk, label: monthLabel(mk), items: map[mk] }));
 }
-function MonthGroupHeader({ label }) {
-  return <div style={{ fontSize: 12, fontWeight: 700, color: "#8F938C", textTransform: "capitalize", margin: "14px 0 8px", letterSpacing: 0.3 }}>{label}</div>;
+function MonthGroupHeader({ label, total }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "14px 0 8px" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#8F938C", textTransform: "capitalize", letterSpacing: 0.3 }}>{label}</div>
+      {total !== undefined && <div style={{ fontSize: 12.5, fontWeight: 700, color: "#F4F5F3" }}>{money(total)}</div>}
+    </div>
+  );
 }
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -230,7 +258,7 @@ function SimpleFormModal({ title, fields, initial, onSubmit, onClose }) {
   return (
     <ModalShell title={title} onClose={onClose}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {fields.map(f => (
+        {fields.filter(f => !f.showIf || f.showIf(values)).map(f => (
           <div key={f.key}>
             <label style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>{f.label}</label>
             <Field f={f} value={values[f.key]} onChange={onChange} />
@@ -278,6 +306,7 @@ function StatusBadge({ status }) {
     atrasado: { bg: COLORS.negativeSoft, fg: COLORS.negative, label: "Atrasado" },
     aberta: { bg: COLORS.goldSoft, fg: COLORS.gold, label: "Em aberto" },
     fechada: { bg: "#EDEBE3", fg: COLORS.textSoft, label: "Fechada" },
+    futura: { bg: "rgba(78,122,158,0.14)", fg: "#6FA0C9", label: "Futura" },
     paga: { bg: COLORS.accentSoft, fg: COLORS.accent, label: "Paga" }
   };
   const s = map[status] || { bg: COLORS.bg, fg: COLORS.textSoft, label: status };
@@ -310,6 +339,7 @@ export default function App() {
   const [usernameStatus, setUsernameStatus] = useState("");
   const [dashboardMonth, setDashboardMonth] = useState(todayISO().slice(0, 7));
   const [goalInput, setGoalInput] = useState("");
+  const [showChangelog, setShowChangelog] = useState(false);
   const passkeySupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
 
   useEffect(() => {
@@ -358,6 +388,18 @@ export default function App() {
     setPasskeys(list || []);
   };
 
+  useEffect(() => {
+    if (data && data.settings.lastSeenVersion !== APP_VERSION) {
+      setShowChangelog(true);
+    }
+  }, [data?.settings?.lastSeenVersion]);
+
+  const dismissChangelog = async () => {
+    setShowChangelog(false);
+    await db.updateSettings(userId, { lastSeenVersion: APP_VERSION });
+    setData(d => ({ ...d, settings: { ...d.settings, lastSeenVersion: APP_VERSION } }));
+  };
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
   const calc = useCalculations(data || emptyData(), dashboardMonth);
 
@@ -404,15 +446,28 @@ export default function App() {
   };
 
   const addIncome = async (vals) => {
-    await db.insertTransactions(userId, [{
-      type: "receita", description: vals.description, amount: parseFloat(vals.amount) || 0,
-      date: vals.expectedDate || todayISO(), receivedDate: vals.receivedDate || undefined,
-      category: vals.category, account: vals.account, recurring: vals.recurring === true, note: vals.note,
-      status: vals.receivedDate ? "recebida" : "prevista"
-    }]);
+    const base = { type: "receita", description: vals.description, category: vals.category, account: vals.account, recurring: vals.recurring === true, note: vals.note };
+    const amount = parseFloat(vals.amount) || 0;
+    const startDate = vals.expectedDate || todayISO();
+    if (vals.recurring === true && vals.repeatUntil) {
+      const rows = [];
+      let dt = new Date(startDate + "T00:00:00");
+      const [endY, endM] = vals.repeatUntil.split("-").map(Number);
+      const endMarker = endY * 12 + (endM - 1);
+      let guard = 0;
+      while (dt.getFullYear() * 12 + dt.getMonth() <= endMarker && guard < 120) {
+        rows.push({ ...base, amount, date: dt.toISOString().slice(0, 10), status: "prevista" });
+        dt.setMonth(dt.getMonth() + 1);
+        guard++;
+      }
+      await db.insertTransactions(userId, rows);
+      showToast(`${rows.length} receitas geradas até ${monthLabel(vals.repeatUntil)}.`);
+    } else {
+      await db.insertTransactions(userId, [{ ...base, amount, date: startDate, receivedDate: vals.receivedDate || undefined, status: vals.receivedDate ? "recebida" : "prevista" }]);
+      showToast("Receita adicionada.");
+    }
     await refresh();
     setModal(null);
-    showToast("Receita adicionada.");
   };
 
   const markIncomeReceived = async (id) => { await db.updateTransaction(userId, id, { status: "recebida", receivedDate: todayISO() }); await refresh(); };
@@ -436,10 +491,29 @@ export default function App() {
   };
 
   const addPayable = async (vals) => {
-    await db.insertPayable(userId, { description: vals.description, amount: parseFloat(vals.amount) || 0, dueDate: vals.dueDate || todayISO(), category: vals.category, recurring: vals.recurring === true, periodicity: vals.periodicity || "Mensal", status: "a_vencer", note: vals.note });
+    const base = { description: vals.description, amount: parseFloat(vals.amount) || 0, category: vals.category, recurring: vals.recurring === true, periodicity: vals.periodicity || "Mensal", status: "a_vencer", note: vals.note };
+    const startDate = vals.dueDate || todayISO();
+    if (vals.recurring === true && vals.repeatUntil) {
+      const rows = [];
+      let dt = new Date(startDate + "T00:00:00");
+      const [endY, endM] = vals.repeatUntil.split("-").map(Number);
+      const endMarker = endY * 12 + (endM - 1);
+      let guard = 0;
+      while (dt.getFullYear() * 12 + dt.getMonth() <= endMarker && guard < 120) {
+        rows.push({ ...base, dueDate: dt.toISOString().slice(0, 10) });
+        if (vals.periodicity === "Semanal") dt.setDate(dt.getDate() + 7);
+        else if (vals.periodicity === "Anual") dt.setFullYear(dt.getFullYear() + 1);
+        else dt.setMonth(dt.getMonth() + 1);
+        guard++;
+      }
+      await db.insertPayables(userId, rows);
+      showToast(`${rows.length} contas geradas até ${monthLabel(vals.repeatUntil)}.`);
+    } else {
+      await db.insertPayable(userId, { ...base, dueDate: startDate });
+      showToast("Conta a pagar adicionada.");
+    }
     await refresh();
     setModal(null);
-    showToast("Conta a pagar adicionada.");
   };
 
   const openEditPayable = (p) => setModal({ type: "editPayable", id: p.id, initial: { description: p.description, amount: p.amount, dueDate: p.dueDate, category: p.category, recurring: p.recurring, periodicity: p.periodicity, note: p.note } });
@@ -597,8 +671,8 @@ export default function App() {
     const resultPositive = calc.resultadoMes >= 0;
     const receitaDelta = calc.receitasMesAnterior ? Math.round(((calc.receitasMes - calc.receitasMesAnterior) / calc.receitasMesAnterior) * 100) : null;
     const despesaDelta = calc.despesasMesAnterior ? Math.round(((calc.despesasMes - calc.despesasMesAnterior) / calc.despesasMesAnterior) * 100) : null;
-    const upcomingPayables = [...data.payables].filter(p => p.status !== "pago").sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 4);
-    const upcomingReceivables = [...data.receivables].filter(r => r.status === "a_receber").sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 4);
+    const upcomingPayables = [...data.payables].filter(p => p.status !== "pago" && monthKey(p.dueDate) === dashboardMonth).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const upcomingReceivables = [...data.receivables].filter(r => r.status === "a_receber" && monthKey(r.dueDate) === dashboardMonth).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -748,7 +822,7 @@ export default function App() {
           </div>
 
           <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 18, padding: 18 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: COLORS.text }}>Contas próximas do vencimento</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: COLORS.text }}>Contas a pagar no mês</div>
             {upcomingPayables.length === 0 ? <div style={{ fontSize: 13, color: COLORS.textSoft }}>Nada por aqui.</div> :
               upcomingPayables.map(p => (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}` }}>
@@ -759,7 +833,7 @@ export default function App() {
           </div>
 
           <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 18, padding: 18 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: COLORS.text }}>Dinheiro a receber</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: COLORS.text }}>Dinheiro a receber no mês</div>
             {upcomingReceivables.length === 0 ? <div style={{ fontSize: 13, color: COLORS.textSoft }}>Nada por aqui.</div> :
               upcomingReceivables.map(r => (
                 <div key={r.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.8, padding: "7px 0", borderBottom: `1px solid ${COLORS.border}` }}>
@@ -831,7 +905,8 @@ export default function App() {
             const inv = invoices[fk];
             const paid = !!data.paidInvoices[`${selectedCard}|${fk}`];
             const isCurrent = fk === calc.realCurrentMonth;
-            const status = paid ? "paga" : isCurrent ? "aberta" : "fechada";
+            const isFuture = fk > calc.realCurrentMonth;
+            const status = paid ? "paga" : isCurrent ? "aberta" : isFuture ? "futura" : "fechada";
             return (
               <div key={fk} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18, marginBottom: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
@@ -927,13 +1002,13 @@ export default function App() {
         {all.length === 0 ? <EmptyState text="Nenhuma conta cadastrada." /> : (
           <>
             {pendingGroups.map(g => (
-              <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+              <div key={g.month}><MonthGroupHeader label={g.label} total={g.items.reduce((s, p) => s + p.amount, 0)} />{g.items.map(row)}</div>
             ))}
             {paidGroups.length > 0 && (
               <>
                 <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text, marginTop: 22, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>Pagas</div>
                 {paidGroups.map(g => (
-                  <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+                  <div key={g.month}><MonthGroupHeader label={g.label} total={g.items.reduce((s, p) => s + p.amount, 0)} />{g.items.map(row)}</div>
                 ))}
               </>
             )}
@@ -1204,6 +1279,22 @@ export default function App() {
 
       {toast && <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: COLORS.ink, color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 13, zIndex: 200 }}>{toast}</div>}
 
+      {showChangelog && (
+        <ModalShell title="✨ Novidades no Meufinancer" onClose={dismissChangelog}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {APP_CHANGELOG.map(entry => (
+              <div key={entry.version}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textSoft, marginBottom: 8 }}>Versão {entry.version}</div>
+                <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {entry.items.map((it, i) => <li key={i} style={{ fontSize: 13.5, color: COLORS.text }}>{it}</li>)}
+                </ul>
+              </div>
+            ))}
+            <button onClick={dismissChangelog} style={btnPrimary}>Entendi</button>
+          </div>
+        </ModalShell>
+      )}
+
       {modal?.type === "income" && (
         <SimpleFormModal title="Nova receita" onClose={() => setModal(null)} onSubmit={addIncome}
           initial={{ category: data.categories[0], account: "Conta corrente" }}
@@ -1211,10 +1302,11 @@ export default function App() {
             { key: "description", label: "Descrição", required: true, placeholder: "Ex: Salário" },
             { key: "amount", label: "Valor", type: "number", required: true, placeholder: "0,00" },
             { key: "expectedDate", label: "Data prevista", type: "date" },
-            { key: "receivedDate", label: "Data recebida (deixe vazio se prevista)", type: "date" },
+            { key: "receivedDate", label: "Data recebida (deixe vazio se prevista)", type: "date", showIf: v => v.recurring !== true },
             { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
             { key: "account", label: "Conta onde entrou", placeholder: "Ex: Conta corrente" },
             { key: "recurring", label: "Recorrente?", type: "toggle" },
+            { key: "repeatUntil", label: "Repetir todo mês até", type: "month", showIf: v => v.recurring === true },
             { key: "note", label: "Observação" }
           ]} />
       )}
@@ -1253,7 +1345,8 @@ export default function App() {
             { key: "dueDate", label: "Data de vencimento", type: "date", required: true },
             { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
             { key: "recurring", label: "Recorrente?", type: "toggle" },
-            { key: "periodicity", label: "Periodicidade", type: "select", options: ["Mensal", "Semanal", "Anual"] },
+            { key: "periodicity", label: "Periodicidade", type: "select", options: ["Mensal", "Semanal", "Anual"], showIf: v => v.recurring === true },
+            { key: "repeatUntil", label: "Repetir até (mês)", type: "month", showIf: v => v.recurring === true },
             { key: "note", label: "Observação" }
           ]} />
       )}
