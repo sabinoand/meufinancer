@@ -19,10 +19,10 @@ import * as db from "./db.js";
 const PAYMENT_METHODS = ["Dinheiro", "Pix", "Débito", "Cartão de crédito", "Transferência", "Outros"];
 
 const COLORS = {
-  bg: "#F6F4EE", surface: "#FFFFFF", ink: "#132119", inkSoft: "#1D3327",
-  accent: "#2E7A57", accentSoft: "#E3EFE7", negative: "#B34A30",
-  negativeSoft: "#F5E5DE", gold: "#B08A52", goldSoft: "#F1E7D4",
-  text: "#1B1B17", textSoft: "#6E6E64", border: "#E4E0D3"
+  bg: "#0A0C0B", surface: "#141714", ink: "#000000", inkSoft: "#101210",
+  accent: "#22C55E", accentSoft: "rgba(34,197,94,0.14)", negative: "#EF5350",
+  negativeSoft: "rgba(239,83,80,0.14)", gold: "#D8AE5C", goldSoft: "rgba(216,174,92,0.14)",
+  text: "#F4F5F3", textSoft: "#8F938C", border: "#242824"
 };
 
 const CHART_PALETTE = ["#2E7A57", "#B08A52", "#4E7A9E", "#B34A30", "#7A6E9E", "#C99A3C", "#5E8F6E", "#9E5E4E"];
@@ -139,7 +139,7 @@ function useCalculations(data) {
 /* ---------------- generic UI bits ---------------- */
 
 function Field({ f, value, onChange }) {
-  const base = { width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14, fontFamily: "Inter, sans-serif", background: "#fff", color: COLORS.text, outline: "none" };
+  const base = { width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14, fontFamily: "Inter, sans-serif", background: "#0F1210", color: COLORS.text, outline: "none" };
   if (f.type === "select") {
     return (
       <select style={base} value={value ?? ""} onChange={e => onChange(f.key, e.target.value)}>
@@ -156,7 +156,7 @@ function Field({ f, value, onChange }) {
             style={{
               flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13.5, fontWeight: 600,
               border: `1px solid ${(value === (opt === "Sim")) ? COLORS.accent : COLORS.border}`,
-              background: (value === (opt === "Sim")) ? COLORS.accentSoft : "#fff",
+              background: (value === (opt === "Sim")) ? COLORS.accentSoft : COLORS.surface,
               color: (value === (opt === "Sim")) ? COLORS.accent : COLORS.textSoft
             }}>{opt}</button>
         ))}
@@ -172,7 +172,7 @@ function Field({ f, value, onChange }) {
 function ModalShell({ title, onClose, children, wide }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(19,33,25,0.45)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100, backdropFilter: "blur(2px)" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", width: "100%", maxWidth: wide ? 560 : 440, borderRadius: "20px 20px 0 0", maxHeight: "88vh", overflowY: "auto", padding: 24, boxShadow: "0 -8px 40px rgba(0,0,0,0.2)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: COLORS.surface, width: "100%", maxWidth: wide ? 560 : 440, borderRadius: "20px 20px 0 0", maxHeight: "88vh", overflowY: "auto", padding: 24, boxShadow: "0 -8px 40px rgba(0,0,0,0.2)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <h3 style={{ fontFamily: "Fraunces, serif", fontSize: 21, fontWeight: 600, color: COLORS.text, margin: 0 }}>{title}</h3>
           <button onClick={onClose} style={{ background: COLORS.bg, border: "none", borderRadius: 8, padding: 6, cursor: "pointer" }}>
@@ -866,7 +866,7 @@ export default function App() {
 
       <div style={{ background: COLORS.negativeSoft, border: `1px solid ${COLORS.negative}`, borderRadius: 16, padding: 18 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.negative, marginBottom: 8 }}>Zona de risco</div>
-        <button onClick={wipeAll} style={{ background: "#fff", border: `1px solid ${COLORS.negative}`, color: COLORS.negative, borderRadius: 10, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Apagar todos os dados</button>
+        <button onClick={wipeAll} style={{ background: COLORS.surface, border: `1px solid ${COLORS.negative}`, color: COLORS.negative, borderRadius: 10, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Apagar todos os dados</button>
       </div>
 
       <div style={{ fontSize: 11.5, color: COLORS.textSoft, lineHeight: 1.6 }}>
@@ -896,7 +896,7 @@ export default function App() {
 
       <div className="mf-sidebar" style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 232, background: COLORS.ink, padding: "26px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 10px 26px" }}>
-          <div style={{ width: 30, height: 30, borderRadius: 9, background: COLORS.accent, display: "flex", alignItems: "center", justifyContent: "center" }}><Wallet2 size={16} color="#fff" /></div>
+          <img src="/logo.png" alt="Meufinancer" style={{ width: 30, height: 30, objectFit: "contain" }} />
           <span style={{ fontFamily: "Fraunces, serif", fontSize: 18.5, fontWeight: 600, color: "#fff" }}>Meufinancer</span>
         </div>
         {NAV_ITEMS.map(item => {
@@ -928,7 +928,7 @@ export default function App() {
         </button>
       </div>
 
-      <div className="mf-bottomnav" style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderTop: `1px solid ${COLORS.border}`, display: "flex", overflowX: "auto", padding: "8px 6px", zIndex: 45 }}>
+      <div className="mf-bottomnav" style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: COLORS.surface, borderTop: `1px solid ${COLORS.border}`, display: "flex", overflowX: "auto", padding: "8px 6px", zIndex: 45 }}>
         {NAV_ITEMS.map(item => {
           const active = view === item.key;
           return (
@@ -1085,7 +1085,7 @@ function TransactionModal({ data, onClose, onSubmit }) {
           <label style={label}>Tipo</label>
           <div style={{ display: "flex", gap: 8 }}>
             {[{ v: "despesa", l: "Despesa" }, { v: "receita", l: "Receita" }, { v: "transferencia", l: "Transferência" }].map(o => (
-              <button key={o.v} onClick={() => setType(o.v)} style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${type === o.v ? COLORS.accent : COLORS.border}`, background: type === o.v ? COLORS.accentSoft : "#fff", color: type === o.v ? COLORS.accent : COLORS.textSoft }}>{o.l}</button>
+              <button key={o.v} onClick={() => setType(o.v)} style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${type === o.v ? COLORS.accent : COLORS.border}`, background: type === o.v ? COLORS.accentSoft : COLORS.surface, color: type === o.v ? COLORS.accent : COLORS.textSoft }}>{o.l}</button>
             ))}
           </div>
         </div>
@@ -1136,7 +1136,7 @@ function TransactionModal({ data, onClose, onSubmit }) {
               <div style={{ display: "flex", gap: 8 }}>
                 {["Sim", "Não"].map(opt => (
                   <button key={opt} type="button" onClick={() => setParcelado(opt === "Sim")}
-                    style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${(parcelado === (opt === "Sim")) ? COLORS.accent : COLORS.border}`, background: (parcelado === (opt === "Sim")) ? COLORS.accentSoft : "#fff", color: (parcelado === (opt === "Sim")) ? COLORS.accent : COLORS.textSoft }}>{opt}</button>
+                    style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${(parcelado === (opt === "Sim")) ? COLORS.accent : COLORS.border}`, background: (parcelado === (opt === "Sim")) ? COLORS.accentSoft : COLORS.surface, color: (parcelado === (opt === "Sim")) ? COLORS.accent : COLORS.textSoft }}>{opt}</button>
                 ))}
               </div>
             </div>
