@@ -130,6 +130,9 @@ export async function updatePayableFull(userId, id, p) {
 export async function insertReceivable(userId, r) {
   await supabase.from("receivables").insert(receivableToRow(r, userId));
 }
+export async function insertReceivables(userId, rows) {
+  await supabase.from("receivables").insert(rows.map(r => receivableToRow(r, userId)));
+}
 export async function updateReceivable(userId, id, patch) {
   await supabase.from("receivables").update(patch).eq("id", id).eq("user_id", userId);
 }
