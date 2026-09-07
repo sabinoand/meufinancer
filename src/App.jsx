@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutDashboard, Wallet, CreditCard, ShoppingCart, CalendarClock, HandCoins,
   PiggyBank, BarChart3, Settings, Plus, X, ArrowUpRight, ArrowDownRight,
-  ChevronRight, Check, Trash2, Bell, TrendingUp, TrendingDown, Wallet2, LogOut
+  ChevronRight, Check, Trash2, Bell, TrendingUp, TrendingDown, Wallet2, LogOut, Pencil, Layers
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -31,6 +31,26 @@ const money = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", curre
 const fmtDate = (iso) => { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const monthKey = (iso) => (iso || "").slice(0, 7);
+const shiftMonth = (mk, delta) => {
+  const d = new Date(mk + "-15");
+  d.setMonth(d.getMonth() + delta);
+  return d.toISOString().slice(0, 7);
+};
+const monthLabel = (mk) => new Date(mk + "-15").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+const monthNavBtn = { width: 30, height: 30, borderRadius: 8, border: `1px solid #242824`, background: "#141714", color: "#F4F5F3", cursor: "pointer", fontSize: 16 };
+function groupByMonth(items, dateKey, order = "desc") {
+  const map = {};
+  items.forEach(it => {
+    const mk = monthKey(it[dateKey]);
+    if (!map[mk]) map[mk] = [];
+    map[mk].push(it);
+  });
+  const keys = Object.keys(map).sort((a, b) => order === "asc" ? a.localeCompare(b) : b.localeCompare(a));
+  return keys.map(mk => ({ month: mk, label: monthLabel(mk), items: map[mk] }));
+}
+function MonthGroupHeader({ label }) {
+  return <div style={{ fontSize: 12, fontWeight: 700, color: "#8F938C", textTransform: "capitalize", margin: "14px 0 8px", letterSpacing: 0.3 }}>{label}</div>;
+}
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
 function emptyData() {
@@ -52,7 +72,7 @@ function invoiceMonthFor(dateISO, closingDay) {
   return target.toISOString().slice(0, 7);
 }
 
-function useCalculations(data) {
+function useCalculations(data, selectedMonth) {
   return useMemo(() => {
     const { transactions, payables, receivables, savings, transfers, cards, paidInvoices } = data;
 
@@ -70,8 +90,9 @@ function useCalculations(data) {
       despesasNaoCartaoPagas.reduce((s, t) => s + t.amount, 0) -
       faturasPagasTotal - transferToSavings + transferFromSavings;
 
-    const currentMonth = todayISO().slice(0, 7);
-    const lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+    const realCurrentMonth = todayISO().slice(0, 7);
+    const currentMonth = selectedMonth || realCurrentMonth;
+    const lastMonthDate = new Date(currentMonth + "-15"); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
     const lastMonth = lastMonthDate.toISOString().slice(0, 7);
 
     const sumMonth = (arr, type, mKey) => arr.filter(t => t.type === type && monthKey(t.date) === mKey).reduce((s, t) => s + t.amount, 0);
@@ -116,9 +137,14 @@ function useCalculations(data) {
 
     const taxaEconomia = receitasMes > 0 ? Math.round(((receitasMes - despesasMes) / receitasMes) * 100) : 0;
 
+    const receitasPrevistas = receitasMes + receivables.filter(r => r.status === "a_receber" && monthKey(r.dueDate) === currentMonth).reduce((s, r) => s + r.amount, 0);
+    const despesasProgramadas = despesasMes + payables.filter(p => p.status !== "pago" && monthKey(p.dueDate) === currentMonth).reduce((s, p) => s + p.amount, 0);
+    const resultadoProgramado = receitasPrevistas - despesasProgramadas;
+    const transferToSavingsMes = transfers.filter(t => t.direction === "toSavings" && monthKey(t.date) === currentMonth).reduce((s, t) => s + t.amount, 0);
+
     const months = [];
     for (let i = 5; i >= 0; i--) {
-      const dt = new Date(); dt.setMonth(dt.getMonth() - i);
+      const dt = new Date(currentMonth + "-15"); dt.setMonth(dt.getMonth() - i);
       const mk = dt.toISOString().slice(0, 7);
       months.push({
         label: dt.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
@@ -131,7 +157,8 @@ function useCalculations(data) {
     return {
       saldo, receitasMes, receitasMesAnterior, despesasMes, despesasMesAnterior, resultadoMes,
       totalGuardado, totalAReceber, totalAPagar, invoicesByCard, cardUsage, totalFaturasAbertas,
-      despesasPorCategoria, taxaEconomia, months, currentMonth
+      despesasPorCategoria, taxaEconomia, months, currentMonth, realCurrentMonth,
+      receitasPrevistas, despesasProgramadas, resultadoProgramado, transferToSavingsMes
     };
   }, [data]);
 }
@@ -142,10 +169,15 @@ function Field({ f, value, onChange }) {
   const base = { width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14, fontFamily: "Inter, sans-serif", background: "#0F1210", color: COLORS.text, outline: "none" };
   if (f.type === "select") {
     return (
-      <select style={base} value={value ?? ""} onChange={e => onChange(f.key, e.target.value)}>
-        <option value="" disabled>Selecione…</option>
-        {f.options.map(o => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
-      </select>
+      <div style={{ display: "flex", gap: 6 }}>
+        <select style={base} value={value ?? ""} onChange={e => onChange(f.key, e.target.value)}>
+          <option value="" disabled>Selecione…</option>
+          {f.options.map(o => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
+        </select>
+        {f.allowAddNew && (
+          <button type="button" onClick={() => f.onAddNew(f.key, onChange)} title="Nova categoria" style={{ flexShrink: 0, width: 38, borderRadius: 10, border: `1px solid ${COLORS.border}`, background: COLORS.surface, color: COLORS.accent, cursor: "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
+        )}
+      </div>
     );
   }
   if (f.type === "toggle") {
@@ -276,6 +308,8 @@ export default function App() {
   const [passkeys, setPasskeys] = useState([]);
   const [usernameInput, setUsernameInput] = useState("");
   const [usernameStatus, setUsernameStatus] = useState("");
+  const [dashboardMonth, setDashboardMonth] = useState(todayISO().slice(0, 7));
+  const [goalInput, setGoalInput] = useState("");
   const passkeySupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
 
   useEffect(() => {
@@ -303,7 +337,8 @@ export default function App() {
 
   useEffect(() => {
     setUsernameInput(data?.settings?.username || "");
-  }, [data?.settings?.username]);
+    setGoalInput(data?.settings?.savingsGoal ? String(data.settings.savingsGoal) : "");
+  }, [data?.settings?.username, data?.settings?.savingsGoal]);
 
   const registerPasskeyAction = async () => {
     try {
@@ -324,7 +359,7 @@ export default function App() {
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
-  const calc = useCalculations(data || emptyData());
+  const calc = useCalculations(data || emptyData(), dashboardMonth);
 
   if (session === undefined) {
     return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: COLORS.textSoft }}>Carregando…</div>;
@@ -390,11 +425,29 @@ export default function App() {
     showToast("Cartão cadastrado.");
   };
 
+  const openEditCard = (card) => setModal({ type: "editCard", id: card.id, initial: { name: card.name, bank: card.bank, limit: card.limit, dueDay: card.dueDay, closingDay: card.closingDay, color: card.color } });
+
+  const editCard = async (vals) => {
+    const dueDay = parseInt(vals.dueDay) || 10;
+    await db.updateCard(userId, modal.id, { name: vals.name, bank: vals.bank, limit: parseFloat(vals.limit) || 0, dueDay, closingDay: vals.closingDay ? parseInt(vals.closingDay) : closingDayEstimate(dueDay), color: vals.color });
+    await refresh();
+    setModal(null);
+    showToast("Cartão atualizado.");
+  };
+
   const addPayable = async (vals) => {
     await db.insertPayable(userId, { description: vals.description, amount: parseFloat(vals.amount) || 0, dueDate: vals.dueDate || todayISO(), category: vals.category, recurring: vals.recurring === true, periodicity: vals.periodicity || "Mensal", status: "a_vencer", note: vals.note });
     await refresh();
     setModal(null);
     showToast("Conta a pagar adicionada.");
+  };
+
+  const openEditPayable = (p) => setModal({ type: "editPayable", id: p.id, initial: { description: p.description, amount: p.amount, dueDate: p.dueDate, category: p.category, recurring: p.recurring, periodicity: p.periodicity, note: p.note } });
+  const editPayable = async (vals) => {
+    await db.updatePayableFull(userId, modal.id, { description: vals.description, amount: vals.amount, dueDate: vals.dueDate, category: vals.category, recurring: vals.recurring === true, periodicity: vals.periodicity, note: vals.note });
+    await refresh();
+    setModal(null);
+    showToast("Conta atualizada.");
   };
 
   const markPayablePaid = async (id) => {
@@ -411,6 +464,14 @@ export default function App() {
     showToast("Recebível adicionado.");
   };
 
+  const openEditReceivable = (r) => setModal({ type: "editReceivable", id: r.id, initial: { who: r.who, description: r.description, amount: r.amount, dueDate: r.dueDate, category: r.category, note: r.note } });
+  const editReceivable = async (vals) => {
+    await db.updateReceivableFull(userId, modal.id, { who: vals.who, description: vals.description, amount: vals.amount, dueDate: vals.dueDate, category: vals.category, note: vals.note });
+    await refresh();
+    setModal(null);
+    showToast("Recebível atualizado.");
+  };
+
   const markReceivableReceived = async (id) => {
     const r = data.receivables.find(x => x.id === id);
     await db.updateReceivable(userId, id, { status: "recebido" });
@@ -425,6 +486,14 @@ export default function App() {
     showToast("Local adicionado.");
   };
 
+  const openEditSavings = (s) => setModal({ type: "editSavings", id: s.id, initial: { name: s.name, type: s.type, balance: s.balance, note: s.note } });
+  const editSavings = async (vals) => {
+    await db.updateSavingsFull(userId, modal.id, { name: vals.name, type: vals.type, balance: vals.balance, note: vals.note });
+    await refresh();
+    setModal(null);
+    showToast("Local atualizado.");
+  };
+
   const doTransfer = async (vals) => {
     const amount = parseFloat(vals.amount) || 0;
     const savingsAcc = data.savings.find(s => s.id === vals.savingsId);
@@ -435,6 +504,48 @@ export default function App() {
     await refresh();
     setModal(null);
     showToast("Transferência realizada.");
+  };
+
+  const importCardPurchases = async (cardId, rows) => {
+    const card = data.cards.find(c => c.id === cardId);
+    const closing = card?.closingDay ?? closingDayEstimate(card?.dueDay ?? 10);
+    const allRows = [];
+    rows.forEach(row => {
+      const amount = parseFloat(row.amount) || 0;
+      const parcelas = Math.max(1, parseInt(row.parcelas) || 1);
+      const per = Math.round((amount / parcelas) * 100) / 100;
+      const groupId = uid();
+      const baseDate = row.date || todayISO();
+      for (let i = 0; i < parcelas; i++) {
+        const dt = new Date(baseDate + "T00:00:00");
+        dt.setMonth(dt.getMonth() + i);
+        const iso = dt.toISOString().slice(0, 10);
+        allRows.push({
+          type: "despesa", description: parcelas > 1 ? `${row.description} (${i + 1}/${parcelas})` : row.description,
+          amount: per, date: iso, category: row.category || "Outros", paymentMethod: "Cartão de crédito",
+          cardId, status: "aberta",
+          installment: parcelas > 1 ? { number: i + 1, total: parcelas, groupId } : undefined,
+          fatura: invoiceMonthFor(iso, closing)
+        });
+      }
+    });
+    await db.insertTransactions(userId, allRows);
+    await refresh();
+    setModal(null);
+    showToast("Compras importadas.");
+  };
+
+  const addBulkTransactions = async (rows, type) => {
+    const clean = rows.filter(r => r.description && r.amount).map(r => ({
+      type, description: r.description, amount: parseFloat(r.amount) || 0, date: r.date || todayISO(),
+      category: r.category || "Outros", paymentMethod: type === "despesa" ? (r.paymentMethod || "Pix") : undefined,
+      status: type === "despesa" ? "pago" : "recebida", account: type === "receita" ? "Conta corrente" : undefined
+    }));
+    if (clean.length === 0) return;
+    await db.insertTransactions(userId, clean);
+    await refresh();
+    setModal(null);
+    showToast(`${clean.length} lançamentos salvos.`);
   };
 
   const payInvoice = async (cardId, faturaKey) => { await db.markInvoicePaid(userId, cardId, faturaKey); await refresh(); };
@@ -462,6 +573,21 @@ export default function App() {
     if (name) { await db.addCategory(userId, name); await refresh(); }
   };
 
+  const promptNewCategory = async (fieldKey, onChange) => {
+    const name = prompt("Nome da nova categoria:");
+    if (!name) return;
+    await db.addCategory(userId, name);
+    await refresh();
+    onChange(fieldKey, name);
+  };
+
+  const saveGoal = async () => {
+    const val = parseFloat(goalInput) || 0;
+    await db.updateSettings(userId, { savingsGoal: val });
+    setData(d => ({ ...d, settings: { ...d.settings, savingsGoal: val } }));
+    showToast("Meta salva.");
+  };
+
   const clearDemo = async () => { await db.wipeAllData(userId); await refresh(); showToast("Dados de exemplo removidos."); };
   const wipeAll = async () => { if (confirm("Apagar todos os dados?")) { await db.wipeAllData(userId); await refresh(); } };
 
@@ -481,6 +607,17 @@ export default function App() {
           <h1 style={{ fontFamily: "Fraunces, serif", fontSize: 26, fontWeight: 600, margin: "2px 0 0", color: COLORS.text }}>Este é o seu resumo financeiro</h1>
         </div>
 
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => setDashboardMonth(shiftMonth(dashboardMonth, -1))} style={monthNavBtn}>‹</button>
+          <div style={{ fontFamily: "Fraunces, serif", fontSize: 15, fontWeight: 600, color: COLORS.text, minWidth: 150, textAlign: "center", textTransform: "capitalize" }}>
+            {monthLabel(dashboardMonth)}
+          </div>
+          <button onClick={() => setDashboardMonth(shiftMonth(dashboardMonth, 1))} style={monthNavBtn}>›</button>
+          {dashboardMonth !== todayISO().slice(0, 7) && (
+            <button onClick={() => setDashboardMonth(todayISO().slice(0, 7))} style={{ ...monthNavBtn, width: "auto", padding: "0 12px", fontSize: 12 }}>Hoje</button>
+          )}
+        </div>
+
         {data.cards.length === 0 && data.transactions.length === 0 && (
           <div style={{ background: COLORS.goldSoft, border: `1px solid ${COLORS.gold}`, borderRadius: 14, padding: "14px 16px", fontSize: 13.5, color: "#6b5326" }}>
             Sua conta está vazia — comece cadastrando um cartão, uma receita ou um lançamento pelo botão "+ Lançamento".
@@ -493,6 +630,62 @@ export default function App() {
           <StatCard label="Despesas do mês" value={money(calc.despesasMes)} icon={TrendingDown} tone="negative" sub={despesaDelta !== null ? `${despesaDelta >= 0 ? "+" : ""}${despesaDelta}% vs mês anterior` : "Sem comparação"} />
           <StatCard label="Resultado do mês" value={money(calc.resultadoMes)} icon={resultPositive ? ArrowUpRight : ArrowDownRight} tone={resultPositive ? "positive" : "negative"} sub={resultPositive ? "Positivo" : "Negativo"} />
           <StatCard label="Dinheiro guardado" value={money(calc.totalGuardado)} icon={PiggyBank} tone="gold" sub={`${data.savings.length} locais`} />
+        </div>
+
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 18, padding: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text, marginBottom: 14 }}>Resumo do mês</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textSoft }}>Vai receber (previsto)</div>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: COLORS.accent, fontWeight: 600 }}>{money(calc.receitasPrevistas)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textSoft }}>Despesas programadas</div>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: COLORS.negative, fontWeight: 600 }}>{money(calc.despesasProgramadas)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: COLORS.textSoft }}>Resultado projetado</div>
+              <div style={{ fontFamily: "Fraunces, serif", fontSize: 19, color: calc.resultadoProgramado >= 0 ? COLORS.accent : COLORS.negative, fontWeight: 600 }}>{money(calc.resultadoProgramado)}</div>
+            </div>
+          </div>
+
+          {(() => {
+            const tips = [];
+            if (calc.resultadoProgramado < 0) {
+              tips.push("Esse mês está projetado para fechar no vermelho — vale rever alguns gastos.");
+            } else if (calc.taxaEconomia >= 20) {
+              tips.push(`Boa! Você está guardando ${calc.taxaEconomia}% do que ganha esse mês.`);
+            } else {
+              tips.push("Dá pra melhorar um pouco a economia desse mês — toda sobra ajuda.");
+            }
+            if (calc.despesasPorCategoria[0]) {
+              tips.push(`Sua maior categoria de gasto é "${calc.despesasPorCategoria[0].name}" (${money(calc.despesasPorCategoria[0].value)}). Vale olhar se dá pra reduzir aí.`);
+            }
+            return (
+              <div style={{ background: COLORS.accentSoft, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                {tips.map((t, i) => <div key={i} style={{ fontSize: 13, color: COLORS.text, marginBottom: i < tips.length - 1 ? 6 : 0 }}>💡 {t}</div>)}
+              </div>
+            );
+          })()}
+
+          <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 14 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textSoft, marginBottom: 8 }}>Meta de guardar por mês</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: data.settings.savingsGoal ? 10 : 0 }}>
+              <input value={goalInput} onChange={e => setGoalInput(e.target.value)} type="number" placeholder="Ex: 500" style={{ flex: 1, maxWidth: 200, padding: "9px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 13, background: "#0F1210", color: COLORS.text }} />
+              <button onClick={saveGoal} style={{ background: COLORS.accent, color: "#0A0C0B", border: "none", borderRadius: 10, padding: "0 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Salvar</button>
+            </div>
+            {data.settings.savingsGoal > 0 && (
+              <div>
+                <div style={{ fontSize: 12.5, color: COLORS.textSoft, marginBottom: 6 }}>
+                  Guardado esse mês: {money(calc.transferToSavingsMes)} de {money(data.settings.savingsGoal)}
+                  {calc.transferToSavingsMes >= data.settings.savingsGoal ? " 🎉 meta batida!" : ""}
+                </div>
+                <div style={{ height: 7, background: COLORS.bg, borderRadius: 4 }}>
+                  <div style={{ height: 7, width: `${Math.min(100, Math.round((calc.transferToSavingsMes / data.settings.savingsGoal) * 100))}%`, background: COLORS.accent, borderRadius: 4 }} />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16 }} className="mf-grid-2">
@@ -581,20 +774,39 @@ export default function App() {
   };
 
   const renderReceitas = () => {
-    const incomes = [...data.transactions].filter(t => t.type === "receita").sort((a, b) => b.date.localeCompare(a.date));
+    const incomes = [...data.transactions].filter(t => t.type === "receita");
+    const pending = incomes.filter(t => t.status !== "recebida").sort((a, b) => a.date.localeCompare(b.date));
+    const received = incomes.filter(t => t.status === "recebida").sort((a, b) => b.date.localeCompare(a.date));
+    const pendingGroups = groupByMonth(pending, "date", "asc");
+    const receivedGroups = groupByMonth(received, "date", "desc");
+    const row = (t) => (
+      <RowCard key={t.id}
+        left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{t.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{t.category} · {fmtDate(t.date)}</div></>}
+        right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontWeight: 700, color: COLORS.accent, fontSize: 14.5 }}>{money(t.amount)}</span>
+          <StatusBadge status={t.status} />
+          {t.status !== "recebida" && <button onClick={() => markIncomeReceived(t.id)} style={iconBtn} title="Marcar como recebida"><Check size={14} /></button>}
+          <button onClick={() => removeItem("transactions", t.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
+        </div>}
+      />
+    );
     return (
       <ListPage title="Receitas" actionLabel="+ Nova receita" onAction={() => setModal({ type: "income" })}>
-        {incomes.length === 0 ? <EmptyState text="Nenhuma receita cadastrada ainda." /> : incomes.map(t => (
-          <RowCard key={t.id}
-            left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{t.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{t.category} · {fmtDate(t.date)}</div></>}
-            right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontWeight: 700, color: COLORS.accent, fontSize: 14.5 }}>{money(t.amount)}</span>
-              <StatusBadge status={t.status} />
-              {t.status !== "recebida" && <button onClick={() => markIncomeReceived(t.id)} style={iconBtn} title="Marcar como recebida"><Check size={14} /></button>}
-              <button onClick={() => removeItem("transactions", t.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
-            </div>}
-          />
-        ))}
+        {incomes.length === 0 ? <EmptyState text="Nenhuma receita cadastrada ainda." /> : (
+          <>
+            {pendingGroups.map(g => (
+              <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+            ))}
+            {receivedGroups.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text, marginTop: 22, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>Recebidas</div>
+                {receivedGroups.map(g => (
+                  <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+                ))}
+              </>
+            )}
+          </>
+        )}
       </ListPage>
     );
   };
@@ -607,12 +819,18 @@ export default function App() {
       return (
         <div>
           <button onClick={() => setSelectedCard(null)} style={{ background: "none", border: "none", color: COLORS.textSoft, fontSize: 13, cursor: "pointer", marginBottom: 14, display: "flex", alignItems: "center", gap: 4 }}>← Voltar para cartões</button>
-          <h2 style={{ fontFamily: "Fraunces, serif", fontSize: 22, marginBottom: 4, color: COLORS.text }}>{card.name} · Faturas</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
+            <h2 style={{ fontFamily: "Fraunces, serif", fontSize: 22, margin: 0, color: COLORS.text }}>{card.name} · Faturas</h2>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => openEditCard(card)} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: COLORS.text, display: "flex", alignItems: "center", gap: 6 }}><Pencil size={13} /> Editar cartão</button>
+              <button onClick={() => setModal({ type: "importCard", cardId: selectedCard })} style={{ background: COLORS.accent, border: "none", borderRadius: 10, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: "#0A0C0B", display: "flex", alignItems: "center", gap: 6 }}><Layers size={13} /> Lançar compras existentes</button>
+            </div>
+          </div>
           <div style={{ fontSize: 13, color: COLORS.textSoft, marginBottom: 18 }}>Fechamento estimado dia {card.closingDay} · Vencimento dia {card.dueDay}</div>
           {keys.length === 0 ? <EmptyState text="Nenhuma fatura ainda." /> : keys.map(fk => {
             const inv = invoices[fk];
             const paid = !!data.paidInvoices[`${selectedCard}|${fk}`];
-            const isCurrent = fk === calc.currentMonth;
+            const isCurrent = fk === calc.realCurrentMonth;
             const status = paid ? "paga" : isCurrent ? "aberta" : "fechada";
             return (
               <div key={fk} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18, marginBottom: 14 }}>
@@ -648,7 +866,10 @@ export default function App() {
               <div key={c.id} onClick={() => setSelectedCard(c.id)} style={{ cursor: "pointer", borderRadius: 16, padding: 18, color: "#fff", background: `linear-gradient(135deg, ${c.color}, ${c.color}CC)`, position: "relative", minHeight: 130, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ fontWeight: 700, fontSize: 15.5 }}>{c.name}</div>
-                  <ChevronRight size={16} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button onClick={e => { e.stopPropagation(); openEditCard(c); }} style={{ background: "rgba(255,255,255,0.2)", border: "none", borderRadius: 7, padding: 5, cursor: "pointer", display: "flex" }}><Pencil size={12} color="#fff" /></button>
+                    <ChevronRight size={16} />
+                  </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.85 }}>{c.bank}</div>
@@ -656,7 +877,8 @@ export default function App() {
                   <div style={{ height: 5, background: "rgba(255,255,255,0.3)", borderRadius: 4 }}>
                     <div style={{ height: 5, width: `${c.pct}%`, background: "#fff", borderRadius: 4 }} />
                   </div>
-                  <div style={{ fontSize: 11, opacity: 0.85, marginTop: 6 }}>Fecha dia {c.closingDay} · Vence dia {c.dueDay}</div>
+                  <div style={{ fontSize: 11, opacity: 0.9, marginTop: 6, fontWeight: 600 }}>Disponível: {money(Math.max(0, c.limit - c.used))}</div>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Fecha dia {c.closingDay} · Vence dia {c.dueDay}</div>
                 </div>
               </div>
             ))}
@@ -668,7 +890,7 @@ export default function App() {
   const renderLancamentos = () => {
     const items = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date));
     return (
-      <ListPage title="Lançamentos" actionLabel="+ Novo lançamento" onAction={() => setModal({ type: "transaction" })}>
+      <ListPage title="Lançamentos" actionLabel="+ Novo lançamento" onAction={() => setModal({ type: "transaction" })} extraAction={{ label: "+ Vários de uma vez", onClick: () => setModal({ type: "bulkTransaction" }) }}>
         {items.length === 0 ? <EmptyState text="Nenhum lançamento ainda." /> : items.map(t => (
           <RowCard key={t.id}
             left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{t.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{t.category} · {fmtDate(t.date)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ""}</div></>}
@@ -683,39 +905,79 @@ export default function App() {
   };
 
   const renderPagar = () => {
-    const items = [...data.payables].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const all = data.payables;
+    const pending = all.filter(p => p.status !== "pago").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const paid = all.filter(p => p.status === "pago").sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+    const pendingGroups = groupByMonth(pending, "dueDate", "asc");
+    const paidGroups = groupByMonth(paid, "dueDate", "desc");
+    const row = (p) => (
+      <RowCard key={p.id}
+        left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{p.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{p.category} · vence {fmtDate(p.dueDate)}{p.recurring ? ` · ${p.periodicity}` : ""}</div></>}
+        right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{money(p.amount)}</span>
+          <StatusBadge status={p.status} />
+          {p.status !== "pago" && <button onClick={() => markPayablePaid(p.id)} style={iconBtn} title="Marcar como paga"><Check size={14} /></button>}
+          <button onClick={() => openEditPayable(p)} style={iconBtn}><Pencil size={13} /></button>
+          <button onClick={() => removeItem("payables", p.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
+        </div>}
+      />
+    );
     return (
       <ListPage title="Contas a pagar" actionLabel="+ Nova conta" onAction={() => setModal({ type: "payable" })}>
-        {items.length === 0 ? <EmptyState text="Nenhuma conta cadastrada." /> : items.map(p => (
-          <RowCard key={p.id}
-            left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{p.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{p.category} · vence {fmtDate(p.dueDate)}{p.recurring ? ` · ${p.periodicity}` : ""}</div></>}
-            right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{money(p.amount)}</span>
-              <StatusBadge status={p.status} />
-              {p.status !== "pago" && <button onClick={() => markPayablePaid(p.id)} style={iconBtn} title="Marcar como paga"><Check size={14} /></button>}
-              <button onClick={() => removeItem("payables", p.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
-            </div>}
-          />
-        ))}
+        {all.length === 0 ? <EmptyState text="Nenhuma conta cadastrada." /> : (
+          <>
+            {pendingGroups.map(g => (
+              <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+            ))}
+            {paidGroups.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text, marginTop: 22, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>Pagas</div>
+                {paidGroups.map(g => (
+                  <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+                ))}
+              </>
+            )}
+          </>
+        )}
       </ListPage>
     );
   };
 
   const renderReceber = () => {
-    const items = [...data.receivables].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const all = data.receivables;
+    const pending = all.filter(r => r.status !== "recebido").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const received = all.filter(r => r.status === "recebido").sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+    const pendingGroups = groupByMonth(pending, "dueDate", "asc");
+    const receivedGroups = groupByMonth(received, "dueDate", "desc");
+    const row = (r) => (
+      <RowCard key={r.id}
+        left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{r.who} — {r.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{r.category} · previsto {fmtDate(r.dueDate)}</div></>}
+        right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{money(r.amount)}</span>
+          <StatusBadge status={r.status} />
+          {r.status === "a_receber" && <button onClick={() => markReceivableReceived(r.id)} style={iconBtn} title="Marcar como recebido"><Check size={14} /></button>}
+          <button onClick={() => openEditReceivable(r)} style={iconBtn}><Pencil size={13} /></button>
+          <button onClick={() => removeItem("receivables", r.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
+        </div>}
+      />
+    );
     return (
       <ListPage title="Dinheiro a receber" actionLabel="+ Novo recebível" onAction={() => setModal({ type: "receivable" })}>
-        {items.length === 0 ? <EmptyState text="Nada por aqui." /> : items.map(r => (
-          <RowCard key={r.id}
-            left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{r.who} — {r.description}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{r.category} · previsto {fmtDate(r.dueDate)}</div></>}
-            right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{money(r.amount)}</span>
-              <StatusBadge status={r.status} />
-              {r.status === "a_receber" && <button onClick={() => markReceivableReceived(r.id)} style={iconBtn} title="Marcar como recebido"><Check size={14} /></button>}
-              <button onClick={() => removeItem("receivables", r.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
-            </div>}
-          />
-        ))}
+        {all.length === 0 ? <EmptyState text="Nada por aqui." /> : (
+          <>
+            {pendingGroups.map(g => (
+              <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+            ))}
+            {receivedGroups.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text, marginTop: 22, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>Recebidos</div>
+                {receivedGroups.map(g => (
+                  <div key={g.month}><MonthGroupHeader label={g.label} />{g.items.map(row)}</div>
+                ))}
+              </>
+            )}
+          </>
+        )}
       </ListPage>
     );
   };
@@ -731,6 +993,7 @@ export default function App() {
           left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{s.name}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>{s.type}</div></>}
           right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.gold }}>{money(s.balance)}</span>
+            <button onClick={() => openEditSavings(s)} style={iconBtn}><Pencil size={13} /></button>
             <button onClick={() => removeItem("savings", s.id)} style={iconBtnDanger}><Trash2 size={14} /></button>
           </div>}
         />
@@ -949,7 +1212,7 @@ export default function App() {
             { key: "amount", label: "Valor", type: "number", required: true, placeholder: "0,00" },
             { key: "expectedDate", label: "Data prevista", type: "date" },
             { key: "receivedDate", label: "Data recebida (deixe vazio se prevista)", type: "date" },
-            { key: "category", label: "Categoria", type: "select", options: data.categories },
+            { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
             { key: "account", label: "Conta onde entrou", placeholder: "Ex: Conta corrente" },
             { key: "recurring", label: "Recorrente?", type: "toggle" },
             { key: "note", label: "Observação" }
@@ -968,6 +1231,19 @@ export default function App() {
           ]} />
       )}
 
+      {modal?.type === "editCard" && (
+        <SimpleFormModal title="Editar cartão" onClose={() => setModal(null)} onSubmit={editCard}
+          initial={modal.initial}
+          fields={[
+            { key: "name", label: "Nome do cartão", required: true },
+            { key: "bank", label: "Banco/instituição" },
+            { key: "limit", label: "Limite", type: "number", required: true },
+            { key: "dueDay", label: "Dia do vencimento", type: "number", required: true },
+            { key: "closingDay", label: "Dia do fechamento", type: "number" },
+            { key: "color", label: "Cor (hex)" }
+          ]} />
+      )}
+
       {modal?.type === "payable" && (
         <SimpleFormModal title="Nova conta a pagar" onClose={() => setModal(null)} onSubmit={addPayable}
           initial={{ category: data.categories[0], periodicity: "Mensal" }}
@@ -975,7 +1251,21 @@ export default function App() {
             { key: "description", label: "Descrição", required: true, placeholder: "Ex: Aluguel" },
             { key: "amount", label: "Valor", type: "number", required: true },
             { key: "dueDate", label: "Data de vencimento", type: "date", required: true },
-            { key: "category", label: "Categoria", type: "select", options: data.categories },
+            { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
+            { key: "recurring", label: "Recorrente?", type: "toggle" },
+            { key: "periodicity", label: "Periodicidade", type: "select", options: ["Mensal", "Semanal", "Anual"] },
+            { key: "note", label: "Observação" }
+          ]} />
+      )}
+
+      {modal?.type === "editPayable" && (
+        <SimpleFormModal title="Editar conta a pagar" onClose={() => setModal(null)} onSubmit={editPayable}
+          initial={modal.initial}
+          fields={[
+            { key: "description", label: "Descrição", required: true },
+            { key: "amount", label: "Valor", type: "number", required: true },
+            { key: "dueDate", label: "Data de vencimento", type: "date", required: true },
+            { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
             { key: "recurring", label: "Recorrente?", type: "toggle" },
             { key: "periodicity", label: "Periodicidade", type: "select", options: ["Mensal", "Semanal", "Anual"] },
             { key: "note", label: "Observação" }
@@ -990,7 +1280,20 @@ export default function App() {
             { key: "description", label: "Descrição", required: true },
             { key: "amount", label: "Valor", type: "number", required: true },
             { key: "dueDate", label: "Data prevista", type: "date", required: true },
-            { key: "category", label: "Categoria", type: "select", options: data.categories },
+            { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
+            { key: "note", label: "Observação" }
+          ]} />
+      )}
+
+      {modal?.type === "editReceivable" && (
+        <SimpleFormModal title="Editar dinheiro a receber" onClose={() => setModal(null)} onSubmit={editReceivable}
+          initial={modal.initial}
+          fields={[
+            { key: "who", label: "Quem deve", required: true },
+            { key: "description", label: "Descrição", required: true },
+            { key: "amount", label: "Valor", type: "number", required: true },
+            { key: "dueDate", label: "Data prevista", type: "date", required: true },
+            { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
             { key: "note", label: "Observação" }
           ]} />
       )}
@@ -1000,6 +1303,17 @@ export default function App() {
           initial={{ type: "Poupança" }}
           fields={[
             { key: "name", label: "Nome", required: true, placeholder: "Ex: Reserva de emergência" },
+            { key: "type", label: "Tipo", type: "select", options: ["Poupança", "Investimentos", "Conta digital", "Espécie", "Outros"] },
+            { key: "balance", label: "Saldo atual", type: "number", required: true },
+            { key: "note", label: "Observação" }
+          ]} />
+      )}
+
+      {modal?.type === "editSavings" && (
+        <SimpleFormModal title="Editar local de dinheiro guardado" onClose={() => setModal(null)} onSubmit={editSavings}
+          initial={modal.initial}
+          fields={[
+            { key: "name", label: "Nome", required: true },
             { key: "type", label: "Tipo", type: "select", options: ["Poupança", "Investimentos", "Conta digital", "Espécie", "Outros"] },
             { key: "balance", label: "Saldo atual", type: "number", required: true },
             { key: "note", label: "Observação" }
@@ -1016,7 +1330,11 @@ export default function App() {
           ]} />
       )}
 
-      {modal?.type === "transaction" && <TransactionModal data={data} onClose={() => setModal(null)} onSubmit={addTransaction} />}
+      {modal?.type === "transaction" && <TransactionModal data={data} onClose={() => setModal(null)} onSubmit={addTransaction} onAddCategory={async () => { const name = prompt("Nome da nova categoria:"); if (!name) return null; await db.addCategory(userId, name); await refresh(); return name; }} />}
+
+      {modal?.type === "bulkTransaction" && <BulkTransactionModal data={data} onClose={() => setModal(null)} onSubmit={addBulkTransactions} />}
+
+      {modal?.type === "importCard" && <ImportCardPurchasesModal data={data} cardId={modal.cardId} onClose={() => setModal(null)} onSubmit={(rows) => importCardPurchases(modal.cardId, rows)} />}
     </div>
   );
 }
@@ -1056,7 +1374,7 @@ const iconBtnDanger = { background: COLORS.negativeSoft, border: "none", color: 
 
 /* ---------------- transaction modal (with parcelas) ---------------- */
 
-function TransactionModal({ data, onClose, onSubmit }) {
+function TransactionModal({ data, onClose, onSubmit, onAddCategory }) {
   const [type, setType] = useState("despesa");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -1108,9 +1426,12 @@ function TransactionModal({ data, onClose, onSubmit }) {
 
         <div>
           <label style={label}>Categoria</label>
-          <select style={inputStyle} value={category} onChange={e => setCategory(e.target.value)}>
-            {data.categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <div style={{ display: "flex", gap: 6 }}>
+            <select style={inputStyle} value={category} onChange={e => setCategory(e.target.value)}>
+              {data.categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <button type="button" onClick={async () => { const name = await onAddCategory(); if (name) setCategory(name); }} title="Nova categoria" style={{ flexShrink: 0, width: 38, borderRadius: 10, border: `1px solid ${COLORS.border}`, background: COLORS.surface, color: COLORS.accent, cursor: "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
+          </div>
         </div>
 
         {type !== "transferencia" && (
@@ -1152,6 +1473,97 @@ function TransactionModal({ data, onClose, onSubmit }) {
 
         <button disabled={saving} onClick={submit} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>{saving ? "Salvando…" : "Salvar lançamento"}</button>
       </div>
+    </ModalShell>
+  );
+}
+
+/* ---------------- bulk quick-add lançamentos ---------------- */
+
+function BulkTransactionModal({ data, onClose, onSubmit }) {
+  const [type, setType] = useState("despesa");
+  const [rows, setRows] = useState([{ description: "", amount: "", category: data.categories[0], date: todayISO() }]);
+  const [saving, setSaving] = useState(false);
+
+  const updateRow = (i, key, value) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, [key]: value } : r));
+  const addRow = () => setRows(prev => [...prev, { description: "", amount: "", category: data.categories[0], date: todayISO() }]);
+  const removeRow = (i) => setRows(prev => prev.filter((_, idx) => idx !== i));
+
+  const submit = async () => {
+    setSaving(true);
+    await onSubmit(rows, type);
+    setSaving(false);
+  };
+
+  const inputStyle = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13, background: "#0F1210", color: COLORS.text };
+
+  return (
+    <ModalShell title="Vários lançamentos de uma vez" onClose={onClose} wide>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {[{ v: "despesa", l: "Despesas" }, { v: "receita", l: "Receitas" }].map(o => (
+          <button key={o.v} onClick={() => setType(o.v)} style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${type === o.v ? COLORS.accent : COLORS.border}`, background: type === o.v ? COLORS.accentSoft : COLORS.surface, color: type === o.v ? COLORS.accent : COLORS.textSoft }}>{o.l}</button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input style={{ ...inputStyle, flex: 2 }} placeholder="Descrição" value={r.description} onChange={e => updateRow(i, "description", e.target.value)} />
+            <input style={{ ...inputStyle, flex: 1 }} type="number" step="0.01" placeholder="Valor" value={r.amount} onChange={e => updateRow(i, "amount", e.target.value)} />
+            <select style={{ ...inputStyle, flex: 1 }} value={r.category} onChange={e => updateRow(i, "category", e.target.value)}>
+              {data.categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input style={{ ...inputStyle, flex: 1 }} type="date" value={r.date} onChange={e => updateRow(i, "date", e.target.value)} />
+            <button onClick={() => removeRow(i)} style={{ ...iconBtnDanger, flexShrink: 0 }}><Trash2 size={14} /></button>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={addRow} style={{ background: "none", border: `1px dashed ${COLORS.border}`, borderRadius: 10, padding: "9px 12px", fontSize: 12.5, cursor: "pointer", color: COLORS.textSoft, marginBottom: 14, width: "100%" }}>+ Adicionar linha</button>
+
+      <button disabled={saving} onClick={submit} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>{saving ? "Salvando…" : `Salvar ${rows.length} lançamento(s)`}</button>
+    </ModalShell>
+  );
+}
+
+/* ---------------- bulk import of existing card purchases ---------------- */
+
+function ImportCardPurchasesModal({ data, cardId, onClose, onSubmit }) {
+  const [rows, setRows] = useState([{ description: "", amount: "", parcelas: 1, category: data.categories[0], date: todayISO() }]);
+  const [saving, setSaving] = useState(false);
+
+  const updateRow = (i, key, value) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, [key]: value } : r));
+  const addRow = () => setRows(prev => [...prev, { description: "", amount: "", parcelas: 1, category: data.categories[0], date: todayISO() }]);
+  const removeRow = (i) => setRows(prev => prev.filter((_, idx) => idx !== i));
+
+  const submit = async () => {
+    setSaving(true);
+    await onSubmit(rows.filter(r => r.description && r.amount));
+    setSaving(false);
+  };
+
+  const inputStyle = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13, background: "#0F1210", color: COLORS.text };
+
+  return (
+    <ModalShell title="Lançar compras existentes do cartão" onClose={onClose} wide>
+      <div style={{ fontSize: 12.5, color: COLORS.textSoft, marginBottom: 14 }}>
+        Coloque cada compra que já existe no cartão, o valor total e em quantas parcelas está. O sistema já cria as parcelas futuras e organiza nas faturas certas.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <input style={{ ...inputStyle, flex: 2, minWidth: 120 }} placeholder="Descrição (ex: Notebook)" value={r.description} onChange={e => updateRow(i, "description", e.target.value)} />
+            <input style={{ ...inputStyle, flex: 1, minWidth: 90 }} type="number" step="0.01" placeholder="Valor total" value={r.amount} onChange={e => updateRow(i, "amount", e.target.value)} />
+            <input style={{ ...inputStyle, width: 70 }} type="number" min="1" placeholder="Parc." value={r.parcelas} onChange={e => updateRow(i, "parcelas", e.target.value)} />
+            <select style={{ ...inputStyle, flex: 1, minWidth: 100 }} value={r.category} onChange={e => updateRow(i, "category", e.target.value)}>
+              {data.categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input style={{ ...inputStyle, minWidth: 130 }} type="date" value={r.date} onChange={e => updateRow(i, "date", e.target.value)} />
+            <button onClick={() => removeRow(i)} style={{ ...iconBtnDanger, flexShrink: 0 }}><Trash2 size={14} /></button>
+          </div>
+        ))}
+      </div>
+      <button onClick={addRow} style={{ background: "none", border: `1px dashed ${COLORS.border}`, borderRadius: 10, padding: "9px 12px", fontSize: 12.5, cursor: "pointer", color: COLORS.textSoft, marginBottom: 14, width: "100%" }}>+ Adicionar compra</button>
+      <button disabled={saving} onClick={submit} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>{saving ? "Salvando…" : "Salvar compras"}</button>
     </ModalShell>
   );
 }
