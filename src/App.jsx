@@ -188,7 +188,7 @@ function useCalculations(data, selectedMonth) {
       despesasPorCategoria, taxaEconomia, months, currentMonth, realCurrentMonth,
       receitasPrevistas, despesasProgramadas, resultadoProgramado, transferToSavingsMes
     };
-  }, [data]);
+  }, [data, selectedMonth]);
 }
 
 /* ---------------- generic UI bits ---------------- */
@@ -609,17 +609,37 @@ export default function App() {
     showToast("Compras importadas.");
   };
 
-  const addBulkTransactions = async (rows, type) => {
-    const clean = rows.filter(r => r.description && r.amount).map(r => ({
+  const addBulkTransactions = async (rows, type, alreadySettled = true) => {
+    const clean = rows.filter(r => r.description && r.amount);
+    if (clean.length === 0) return;
+    if (!alreadySettled) {
+      if (type === "despesa") {
+        await db.insertPayables(userId, clean.map(r => ({ description: r.description, amount: parseFloat(r.amount) || 0, dueDate: r.date || todayISO(), category: r.category || "Outros", recurring: false, periodicity: "Mensal", status: "a_vencer" })));
+      } else {
+        await db.insertTransactions(userId, clean.map(r => ({ type: "receita", description: r.description, amount: parseFloat(r.amount) || 0, date: r.date || todayISO(), category: r.category || "Outros", status: "prevista", account: "Conta corrente" })));
+      }
+      await refresh();
+      setModal(null);
+      showToast(`${clean.length} ${type === "despesa" ? "contas adicionadas em Contas a pagar." : "receitas previstas adicionadas."}`);
+      return;
+    }
+    const txRows = clean.map(r => ({
       type, description: r.description, amount: parseFloat(r.amount) || 0, date: r.date || todayISO(),
       category: r.category || "Outros", paymentMethod: type === "despesa" ? (r.paymentMethod || "Pix") : undefined,
       status: type === "despesa" ? "pago" : "recebida", account: type === "receita" ? "Conta corrente" : undefined
     }));
-    if (clean.length === 0) return;
-    await db.insertTransactions(userId, clean);
+    await db.insertTransactions(userId, txRows);
     await refresh();
     setModal(null);
-    showToast(`${clean.length} lançamentos salvos.`);
+    showToast(`${txRows.length} lançamentos salvos.`);
+  };
+
+  const addFromPendingLancamento = async (vals) => {
+    if (vals.type === "despesa") {
+      await addPayable({ description: vals.description, amount: vals.amount, dueDate: vals.date, category: vals.category, recurring: vals.recurring, periodicity: vals.periodicity, repeatUntil: vals.repeatUntil });
+    } else {
+      await addIncome({ description: vals.description, amount: vals.amount, expectedDate: vals.date, category: vals.category, account: "Conta corrente", recurring: vals.recurring, repeatUntil: vals.repeatUntil });
+    }
   };
 
   const payInvoice = async (cardId, faturaKey) => { await db.markInvoicePaid(userId, cardId, faturaKey); await refresh(); };
@@ -998,7 +1018,7 @@ export default function App() {
       />
     );
     return (
-      <ListPage title="Contas a pagar" actionLabel="+ Nova conta" onAction={() => setModal({ type: "payable" })}>
+      <ListPage title="Contas a pagar" extraAction={{ label: "+ Lançamento", onClick: () => setModal({ type: "transaction" }) }}>
         {all.length === 0 ? <EmptyState text="Nenhuma conta cadastrada." /> : (
           <>
             {pendingGroups.map(g => (
@@ -1423,7 +1443,7 @@ export default function App() {
           ]} />
       )}
 
-      {modal?.type === "transaction" && <TransactionModal data={data} onClose={() => setModal(null)} onSubmit={addTransaction} onAddCategory={async () => { const name = prompt("Nome da nova categoria:"); if (!name) return null; await db.addCategory(userId, name); await refresh(); return name; }} />}
+      {modal?.type === "transaction" && <TransactionModal data={data} onClose={() => setModal(null)} onSubmit={addTransaction} onSubmitPending={addFromPendingLancamento} onAddCategory={async () => { const name = prompt("Nome da nova categoria:"); if (!name) return null; await db.addCategory(userId, name); await refresh(); return name; }} />}
 
       {modal?.type === "bulkTransaction" && <BulkTransactionModal data={data} onClose={() => setModal(null)} onSubmit={addBulkTransactions} />}
 
@@ -1441,7 +1461,7 @@ function ListPage({ title, actionLabel, onAction, extraAction, children }) {
         <h2 style={{ fontFamily: "Fraunces, serif", fontSize: 22, color: COLORS.text, margin: 0 }}>{title}</h2>
         <div style={{ display: "flex", gap: 8 }}>
           {extraAction && <button onClick={extraAction.onClick} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "9px 15px", fontSize: 13, fontWeight: 700, cursor: "pointer", color: COLORS.text }}>{extraAction.label}</button>}
-          <button onClick={onAction} style={{ background: COLORS.accent, color: "#fff", border: "none", borderRadius: 10, padding: "9px 15px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{actionLabel}</button>
+          {actionLabel && <button onClick={onAction} style={{ background: COLORS.accent, color: "#fff", border: "none", borderRadius: 10, padding: "9px 15px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{actionLabel}</button>}
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{children}</div>
@@ -1467,7 +1487,7 @@ const iconBtnDanger = { background: COLORS.negativeSoft, border: "none", color: 
 
 /* ---------------- transaction modal (with parcelas) ---------------- */
 
-function TransactionModal({ data, onClose, onSubmit, onAddCategory }) {
+function TransactionModal({ data, onClose, onSubmit, onSubmitPending, onAddCategory }) {
   const [type, setType] = useState("despesa");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -1477,12 +1497,21 @@ function TransactionModal({ data, onClose, onSubmit, onAddCategory }) {
   const [cardId, setCardId] = useState(data.cards[0]?.id || "");
   const [parcelado, setParcelado] = useState(false);
   const [numParcelas, setNumParcelas] = useState(2);
+  const [alreadySettled, setAlreadySettled] = useState(true);
+  const [recurring, setRecurring] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const isCard = type === "despesa" && paymentMethod === "Cartão de crédito";
 
   const submit = async () => {
     if (!description || !amount) return;
     setSaving(true);
-    await onSubmit({ type, description, amount, date, paymentMethod, category, cardId, parcelado, numParcelas, status: type === "despesa" ? "pago" : "recebida" });
+    if (type !== "transferencia" && !isCard && !alreadySettled) {
+      await onSubmitPending({ type, description, amount, date, category, recurring, repeatUntil, periodicity: "Mensal" });
+    } else {
+      await onSubmit({ type, description, amount, date, paymentMethod, category, cardId, parcelado, numParcelas, status: type === "despesa" ? "pago" : "recebida" });
+    }
     setSaving(false);
   };
 
@@ -1512,7 +1541,7 @@ function TransactionModal({ data, onClose, onSubmit, onAddCategory }) {
             <input style={inputStyle} type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0,00" />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={label}>Data</label>
+            <label style={label}>{!isCard && !alreadySettled ? "Data de vencimento" : "Data"}</label>
             <input style={inputStyle} type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
         </div>
@@ -1536,7 +1565,44 @@ function TransactionModal({ data, onClose, onSubmit, onAddCategory }) {
           </div>
         )}
 
-        {type === "despesa" && paymentMethod === "Cartão de crédito" && (
+        {type !== "transferencia" && !isCard && (
+          <div>
+            <label style={label}>{type === "despesa" ? "Já foi paga?" : "Já foi recebida?"}</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["Sim", "Não"].map(opt => (
+                <button key={opt} type="button" onClick={() => setAlreadySettled(opt === "Sim")}
+                  style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${(alreadySettled === (opt === "Sim")) ? COLORS.accent : COLORS.border}`, background: (alreadySettled === (opt === "Sim")) ? COLORS.accentSoft : COLORS.surface, color: (alreadySettled === (opt === "Sim")) ? COLORS.accent : COLORS.textSoft }}>{opt}</button>
+              ))}
+            </div>
+            {!alreadySettled && (
+              <div style={{ fontSize: 11.5, color: COLORS.textSoft, marginTop: 6 }}>
+                {type === "despesa" ? "Vai aparecer em Contas a pagar." : "Vai aparecer em Receitas como prevista."}
+              </div>
+            )}
+          </div>
+        )}
+
+        {type !== "transferencia" && !isCard && !alreadySettled && (
+          <>
+            <div>
+              <label style={label}>Recorrente?</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["Sim", "Não"].map(opt => (
+                  <button key={opt} type="button" onClick={() => setRecurring(opt === "Sim")}
+                    style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${(recurring === (opt === "Sim")) ? COLORS.accent : COLORS.border}`, background: (recurring === (opt === "Sim")) ? COLORS.accentSoft : COLORS.surface, color: (recurring === (opt === "Sim")) ? COLORS.accent : COLORS.textSoft }}>{opt}</button>
+                ))}
+              </div>
+            </div>
+            {recurring && (
+              <div>
+                <label style={label}>Repetir todo mês até</label>
+                <input style={inputStyle} type="month" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} />
+              </div>
+            )}
+          </>
+        )}
+
+        {isCard && (
           <>
             <div>
               <label style={label}>Qual cartão?</label>
@@ -1574,6 +1640,7 @@ function TransactionModal({ data, onClose, onSubmit, onAddCategory }) {
 
 function BulkTransactionModal({ data, onClose, onSubmit }) {
   const [type, setType] = useState("despesa");
+  const [alreadySettled, setAlreadySettled] = useState(true);
   const [rows, setRows] = useState([{ description: "", amount: "", category: data.categories[0], date: todayISO() }]);
   const [saving, setSaving] = useState(false);
 
@@ -1583,7 +1650,7 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
 
   const submit = async () => {
     setSaving(true);
-    await onSubmit(rows, type);
+    await onSubmit(rows, type, alreadySettled);
     setSaving(false);
   };
 
@@ -1591,10 +1658,21 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
 
   return (
     <ModalShell title="Vários lançamentos de uma vez" onClose={onClose} wide>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         {[{ v: "despesa", l: "Despesas" }, { v: "receita", l: "Receitas" }].map(o => (
           <button key={o.v} onClick={() => setType(o.v)} style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${type === o.v ? COLORS.accent : COLORS.border}`, background: type === o.v ? COLORS.accentSoft : COLORS.surface, color: type === o.v ? COLORS.accent : COLORS.textSoft }}>{o.l}</button>
         ))}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSoft, marginBottom: 6 }}>{type === "despesa" ? "Essas contas já foram pagas?" : "Essas receitas já foram recebidas?"}</div>
+        <div style={{ display: "flex", gap: 8, maxWidth: 300 }}>
+          {["Sim", "Não"].map(opt => (
+            <button key={opt} type="button" onClick={() => setAlreadySettled(opt === "Sim")}
+              style={{ flex: 1, padding: "9px 0", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${(alreadySettled === (opt === "Sim")) ? COLORS.accent : COLORS.border}`, background: (alreadySettled === (opt === "Sim")) ? COLORS.accentSoft : COLORS.surface, color: (alreadySettled === (opt === "Sim")) ? COLORS.accent : COLORS.textSoft }}>{opt}</button>
+          ))}
+        </div>
+        {!alreadySettled && <div style={{ fontSize: 11.5, color: COLORS.textSoft, marginTop: 6 }}>{type === "despesa" ? "Vão aparecer em Contas a pagar, com a data como vencimento." : "Vão aparecer em Receitas como previstas."}</div>}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
