@@ -6,7 +6,8 @@ const COLORS = { bg: "#F6F4EE", ink: "#132119", accent: "#2E7A57", border: "#E4E
 
 export default function Auth() {
   const [mode, setMode] = useState("login"); // login | signup | reset
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState(""); // email OR username (login only)
+  const [email, setEmail] = useState(""); // signup / reset always use email
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -32,7 +33,13 @@ export default function Auth() {
     setError(""); setMessage(""); setLoading(true);
     try {
       if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        let loginEmail = identifier.trim();
+        if (!loginEmail.includes("@")) {
+          const { data: resolvedEmail, error: lookupError } = await supabase.rpc("email_for_username", { identifier: loginEmail });
+          if (lookupError || !resolvedEmail) throw new Error("Usuário não encontrado. Confira o nome de usuário ou use o e-mail.");
+          loginEmail = resolvedEmail;
+        }
+        const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
         if (error) throw error;
       } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({ email, password });
@@ -68,8 +75,17 @@ export default function Auth() {
         </h1>
 
         <form onSubmit={submit}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>E-mail</label>
-          <input style={inputStyle} type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="voce@email.com" />
+          {mode === "login" ? (
+            <>
+              <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>E-mail ou nome de usuário</label>
+              <input style={inputStyle} required value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder="voce@email.com ou seu usuário" />
+            </>
+          ) : (
+            <>
+              <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>E-mail</label>
+              <input style={inputStyle} type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="voce@email.com" />
+            </>
+          )}
 
           {mode !== "reset" && (
             <>
@@ -115,6 +131,10 @@ export default function Auth() {
           {mode !== "login" && (
             <span>Já tem conta? <button onClick={() => { setMode("login"); setError(""); setMessage(""); }} style={{ background: "none", border: "none", color: COLORS.accent, cursor: "pointer", fontWeight: 700 }}>Entrar</button></span>
           )}
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 22, fontSize: 11, color: COLORS.textSoft, opacity: 0.7 }}>
+          Elaborado por Sabino
         </div>
       </div>
     </div>

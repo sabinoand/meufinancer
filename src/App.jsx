@@ -274,6 +274,8 @@ export default function App() {
   const [selectedCard, setSelectedCard] = useState(null);
   const [toast, setToast] = useState(null);
   const [passkeys, setPasskeys] = useState([]);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [usernameStatus, setUsernameStatus] = useState("");
   const passkeySupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
 
   useEffect(() => {
@@ -298,6 +300,10 @@ export default function App() {
     if (!userId || !passkeySupported) return;
     supabase.auth.passkey.list().then(({ data }) => setPasskeys(data || [])).catch(() => {});
   }, [userId, passkeySupported]);
+
+  useEffect(() => {
+    setUsernameInput(data?.settings?.username || "");
+  }, [data?.settings?.username]);
 
   const registerPasskeyAction = async () => {
     try {
@@ -438,6 +444,17 @@ export default function App() {
   const updateUserName = async (name) => {
     setData(d => ({ ...d, settings: { ...d.settings, userName: name } }));
     await db.updateSettings(userId, { userName: name });
+  };
+
+  const saveUsername = async () => {
+    setUsernameStatus("");
+    try {
+      await db.updateSettings(userId, { username: usernameInput.trim() || null });
+      setData(d => ({ ...d, settings: { ...d.settings, username: usernameInput.trim() } }));
+      setUsernameStatus("ok");
+    } catch (err) {
+      setUsernameStatus(err.message?.includes("duplicate") ? "Esse nome de usuário já está em uso." : "Não foi possível salvar.");
+    }
   };
 
   const addCategoryAction = async () => {
@@ -816,8 +833,18 @@ export default function App() {
       )}
 
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18 }}>
-        <label style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>Nome do usuário</label>
+        <label style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>Nome de exibição</label>
         <input value={data.settings.userName} onChange={e => updateUserName(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }} />
+      </div>
+
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18 }}>
+        <label style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>Nome de usuário para login (sem precisar de e-mail)</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={usernameInput} onChange={e => setUsernameInput(e.target.value.replace(/\s/g, "").toLowerCase())} placeholder="ex: joao.silva" style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 }} />
+          <button onClick={saveUsername} style={{ background: COLORS.accent, color: "#fff", border: "none", borderRadius: 10, padding: "0 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Salvar</button>
+        </div>
+        {usernameStatus === "ok" && <div style={{ fontSize: 12, color: COLORS.accent, marginTop: 8 }}>Salvo! Agora dá pra entrar só com esse nome + senha.</div>}
+        {usernameStatus && usernameStatus !== "ok" && <div style={{ fontSize: 12, color: COLORS.negative, marginTop: 8 }}>{usernameStatus}</div>}
       </div>
 
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18 }}>
@@ -885,6 +912,7 @@ export default function App() {
           <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.45)" }}>Saldo disponível</div>
           <div style={{ fontFamily: "Fraunces, serif", fontSize: 18, color: "#fff", fontWeight: 600 }}>{money(calc.saldo)}</div>
           <button onClick={logout} style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", padding: 0 }}><LogOut size={13} /> Sair</button>
+          <div style={{ marginTop: 14, fontSize: 10.5, color: "rgba(255,255,255,0.3)" }}>Elaborado por Sabino</div>
         </div>
       </div>
 

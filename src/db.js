@@ -53,6 +53,7 @@ export async function loadAllData(userId) {
     isDemo: settingsRes.data?.is_demo ?? false,
     settings: {
       userName: settingsRes.data?.user_name || "Usuário",
+      username: settingsRes.data?.username || "",
       currency: settingsRes.data?.currency || "BRL",
       theme: settingsRes.data?.theme || "light",
       alertLimits: settingsRes.data?.alert_limits || [80, 90, 95]
@@ -71,6 +72,7 @@ export async function loadAllData(userId) {
 export async function updateSettings(userId, patch) {
   const row = {};
   if (patch.userName !== undefined) row.user_name = patch.userName;
+  if (patch.username !== undefined) row.username = patch.username || null;
   if (patch.currency !== undefined) row.currency = patch.currency;
   if (patch.theme !== undefined) row.theme = patch.theme;
   if (patch.isDemo !== undefined) row.is_demo = patch.isDemo;
