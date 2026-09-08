@@ -33,6 +33,17 @@ const savingsToRow = (s, userId) => ({ user_id: userId, name: s.name, type: s.ty
 
 const transferToRow = (t, userId) => ({ user_id: userId, date: t.date, amount: t.amount, direction: t.direction, savings_id: t.savingsId });
 
+/* Every write goes through this — if Supabase rejects it, we throw instead of
+   silently pretending it worked (that silence was the cause of a real bug:
+   installment inserts were failing and the UI still said "saved"). */
+function ok(res, label) {
+  if (res?.error) {
+    console.error(`[meufinancer] ${label} failed:`, res.error);
+    throw new Error(res.error.message || `Falha ao salvar (${label}).`);
+  }
+  return res;
+}
+
 export async function loadAllData(userId) {
   const [settingsRes, catRes, cardsRes, txRes, payRes, recRes, savRes, trfRes, invRes] = await Promise.all([
     supabase.from("settings").select("*").eq("user_id", userId).maybeSingle(),
@@ -81,93 +92,93 @@ export async function updateSettings(userId, patch) {
   if (patch.savingsGoal !== undefined) row.savings_goal = patch.savingsGoal;
   if (patch.lastSeenVersion !== undefined) row.last_seen_version = patch.lastSeenVersion;
   row.updated_at = new Date().toISOString();
-  await supabase.from("settings").update(row).eq("user_id", userId);
+  ok(await supabase.from("settings").update(row).eq("user_id", userId), "atualizar configurações");
 }
 
 export async function addCategory(userId, name) {
-  await supabase.from("categories").insert({ user_id: userId, name });
+  ok(await supabase.from("categories").insert({ user_id: userId, name }), "criar categoria");
 }
 
 export async function insertTransactions(userId, txs) {
-  await supabase.from("transactions").insert(txs.map(t => txToRow(t, userId)));
+  ok(await supabase.from("transactions").insert(txs.map(t => txToRow(t, userId))), "salvar lançamento");
 }
 export async function updateTransaction(userId, id, patch) {
   const row = {};
   if (patch.status !== undefined) row.status = patch.status;
   if (patch.receivedDate !== undefined) row.received_date = patch.receivedDate;
-  await supabase.from("transactions").update(row).eq("id", id).eq("user_id", userId);
+  ok(await supabase.from("transactions").update(row).eq("id", id).eq("user_id", userId), "atualizar lançamento");
 }
 export async function deleteRow(table, userId, id) {
-  await supabase.from(table).delete().eq("id", id).eq("user_id", userId);
+  ok(await supabase.from(table).delete().eq("id", id).eq("user_id", userId), "excluir registro");
 }
 
 export async function insertCard(userId, c) {
-  await supabase.from("cards").insert(cardToRow(c, userId));
+  ok(await supabase.from("cards").insert(cardToRow(c, userId)), "criar cartão");
 }
 export async function updateCard(userId, id, c) {
-  await supabase.from("cards").update({
+  ok(await supabase.from("cards").update({
     name: c.name, bank: c.bank, limit_amount: c.limit, due_day: c.dueDay,
     closing_day: c.closingDay, color: c.color
-  }).eq("id", id).eq("user_id", userId);
+  }).eq("id", id).eq("user_id", userId), "atualizar cartão");
 }
 
 export async function insertPayable(userId, p) {
-  await supabase.from("payables").insert(payableToRow(p, userId));
+  ok(await supabase.from("payables").insert(payableToRow(p, userId)), "criar conta a pagar");
 }
 export async function insertPayables(userId, rows) {
-  await supabase.from("payables").insert(rows.map(p => payableToRow(p, userId)));
+  ok(await supabase.from("payables").insert(rows.map(p => payableToRow(p, userId))), "criar contas a pagar");
 }
 export async function updatePayable(userId, id, patch) {
-  await supabase.from("payables").update(patch).eq("id", id).eq("user_id", userId);
+  ok(await supabase.from("payables").update(patch).eq("id", id).eq("user_id", userId), "atualizar conta a pagar");
 }
 export async function updatePayableFull(userId, id, p) {
-  await supabase.from("payables").update({
+  ok(await supabase.from("payables").update({
     description: p.description, amount: parseFloat(p.amount) || 0, due_date: p.dueDate,
     category: p.category, recurring: p.recurring === true, periodicity: p.periodicity, note: p.note || null
-  }).eq("id", id).eq("user_id", userId);
+  }).eq("id", id).eq("user_id", userId), "editar conta a pagar");
 }
 
 export async function insertReceivable(userId, r) {
-  await supabase.from("receivables").insert(receivableToRow(r, userId));
+  ok(await supabase.from("receivables").insert(receivableToRow(r, userId)), "criar recebível");
 }
 export async function insertReceivables(userId, rows) {
-  await supabase.from("receivables").insert(rows.map(r => receivableToRow(r, userId)));
+  ok(await supabase.from("receivables").insert(rows.map(r => receivableToRow(r, userId))), "criar recebíveis");
 }
 export async function updateReceivable(userId, id, patch) {
-  await supabase.from("receivables").update(patch).eq("id", id).eq("user_id", userId);
+  ok(await supabase.from("receivables").update(patch).eq("id", id).eq("user_id", userId), "atualizar recebível");
 }
 export async function updateReceivableFull(userId, id, r) {
-  await supabase.from("receivables").update({
+  ok(await supabase.from("receivables").update({
     who: r.who, description: r.description, amount: parseFloat(r.amount) || 0,
     due_date: r.dueDate, category: r.category, note: r.note || null
-  }).eq("id", id).eq("user_id", userId);
+  }).eq("id", id).eq("user_id", userId), "editar recebível");
 }
 
 export async function insertSavings(userId, s) {
-  await supabase.from("savings").insert(savingsToRow(s, userId));
+  ok(await supabase.from("savings").insert(savingsToRow(s, userId)), "criar local guardado");
 }
 export async function updateSavingsBalance(userId, id, balance) {
-  await supabase.from("savings").update({ balance }).eq("id", id).eq("user_id", userId);
+  ok(await supabase.from("savings").update({ balance }).eq("id", id).eq("user_id", userId), "atualizar saldo guardado");
 }
 export async function updateSavingsFull(userId, id, s) {
-  await supabase.from("savings").update({
+  ok(await supabase.from("savings").update({
     name: s.name, type: s.type, balance: parseFloat(s.balance) || 0, note: s.note || null
-  }).eq("id", id).eq("user_id", userId);
+  }).eq("id", id).eq("user_id", userId), "editar local guardado");
 }
 
 export async function insertTransfer(userId, t) {
-  await supabase.from("transfers").insert(transferToRow(t, userId));
+  ok(await supabase.from("transfers").insert(transferToRow(t, userId)), "registrar transferência");
 }
 
 export async function markInvoicePaid(userId, cardId, fatura) {
-  await supabase.from("paid_invoices").insert({ user_id: userId, card_id: cardId, fatura });
+  ok(await supabase.from("paid_invoices").insert({ user_id: userId, card_id: cardId, fatura }), "marcar fatura como paga");
 }
 export async function unmarkInvoicePaid(userId, cardId, fatura) {
-  await supabase.from("paid_invoices").delete().eq("user_id", userId).eq("card_id", cardId).eq("fatura", fatura);
+  ok(await supabase.from("paid_invoices").delete().eq("user_id", userId).eq("card_id", cardId).eq("fatura", fatura), "desmarcar fatura paga");
 }
 
 export async function wipeAllData(userId) {
-  await Promise.all([
+  const results = await Promise.all([
     supabase.from("transactions").delete().eq("user_id", userId),
     supabase.from("payables").delete().eq("user_id", userId),
     supabase.from("receivables").delete().eq("user_id", userId),
@@ -176,5 +187,6 @@ export async function wipeAllData(userId) {
     supabase.from("paid_invoices").delete().eq("user_id", userId),
     supabase.from("cards").delete().eq("user_id", userId)
   ]);
+  results.forEach(r => ok(r, "apagar dados"));
   await updateSettings(userId, { isDemo: false });
 }
