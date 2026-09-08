@@ -91,6 +91,7 @@ function MonthGroupHeader({ label, total }) {
   );
 }
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const uuid = () => (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
 
 function emptyData() {
   return {
@@ -281,8 +282,13 @@ function SimpleFormModal({ title, fields, initial, onSubmit, onClose }) {
     if (missing) { setError(`Preencha "${missing.label}".`); return; }
     setError("");
     setSaving(true);
-    await onSubmit(values);
-    setSaving(false);
+    try {
+      await onSubmit(values);
+    } catch (err) {
+      setError(err.message || "Não foi possível salvar. Tente de novo.");
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <ModalShell title={title} onClose={onClose}>
@@ -455,7 +461,7 @@ export default function App() {
       const card = data.cards.find(c => c.id === vals.cardId);
       const closing = card?.closingDay ?? closingDayEstimate(card?.dueDay ?? 10);
       const parcelas = vals.parcelado ? Math.max(1, parseInt(vals.numParcelas) || 1) : 1;
-      const groupId = uid();
+      const groupId = uuid();
       const per = Math.round((amount / parcelas) * 100) / 100;
       rows = [];
       for (let i = 0; i < parcelas; i++) {
@@ -557,10 +563,14 @@ export default function App() {
   };
 
   const markPayablePaid = async (id) => {
-    const p = data.payables.find(x => x.id === id);
-    await db.updatePayable(userId, id, { status: "pago" });
-    await db.insertTransactions(userId, [{ type: "despesa", description: p.description, amount: p.amount, date: todayISO(), category: p.category, paymentMethod: "Transferência", status: "pago" }]);
-    await refresh();
+    try {
+      const p = data.payables.find(x => x.id === id);
+      await db.updatePayable(userId, id, { status: "pago" });
+      await db.insertTransactions(userId, [{ type: "despesa", description: p.description, amount: p.amount, date: todayISO(), category: p.category, paymentMethod: "Transferência", status: "pago" }]);
+      await refresh();
+    } catch (err) {
+      showToast(err.message || "Não foi possível marcar como paga.");
+    }
   };
 
   const addReceivable = async (vals) => {
@@ -579,10 +589,14 @@ export default function App() {
   };
 
   const markReceivableReceived = async (id) => {
-    const r = data.receivables.find(x => x.id === id);
-    await db.updateReceivable(userId, id, { status: "recebido" });
-    await db.insertTransactions(userId, [{ type: "receita", description: `${r.description} (${r.who})`, amount: r.amount, date: todayISO(), category: r.category, status: "recebida", account: "Conta corrente" }]);
-    await refresh();
+    try {
+      const r = data.receivables.find(x => x.id === id);
+      await db.updateReceivable(userId, id, { status: "recebido" });
+      await db.insertTransactions(userId, [{ type: "receita", description: `${r.description} (${r.who})`, amount: r.amount, date: todayISO(), category: r.category, status: "recebida", account: "Conta corrente" }]);
+      await refresh();
+    } catch (err) {
+      showToast(err.message || "Não foi possível marcar como recebido.");
+    }
   };
 
   const addSavings = async (vals) => {
@@ -620,7 +634,7 @@ export default function App() {
       const amount = parseFloat(row.amount) || 0;
       const parcelas = Math.max(1, parseInt(row.parcelas) || 1);
       const per = Math.round((amount / parcelas) * 100) / 100;
-      const groupId = uid();
+      const groupId = uuid();
       const baseDate = row.date || todayISO();
       for (let i = 0; i < parcelas; i++) {
         const dt = new Date(baseDate + "T00:00:00");
@@ -691,10 +705,10 @@ export default function App() {
     }
   };
 
-  const payInvoice = async (cardId, faturaKey) => { await db.markInvoicePaid(userId, cardId, faturaKey); await refresh(); };
-  const unpayInvoice = async (cardId, faturaKey) => { await db.unmarkInvoicePaid(userId, cardId, faturaKey); await refresh(); };
+  const payInvoice = async (cardId, faturaKey) => { try { await db.markInvoicePaid(userId, cardId, faturaKey); await refresh(); } catch (err) { showToast(err.message || "Não foi possível marcar a fatura como paga."); } };
+  const unpayInvoice = async (cardId, faturaKey) => { try { await db.unmarkInvoicePaid(userId, cardId, faturaKey); await refresh(); } catch (err) { showToast(err.message || "Não foi possível desmarcar a fatura."); } };
 
-  const removeItem = async (table, id) => { await db.deleteRow(table, userId, id); await refresh(); };
+  const removeItem = async (table, id) => { try { await db.deleteRow(table, userId, id); await refresh(); } catch (err) { showToast(err.message || "Não foi possível excluir."); } };
 
   const updateUserName = async (name) => {
     setData(d => ({ ...d, settings: { ...d.settings, userName: name } }));
@@ -1588,12 +1602,17 @@ function TransactionModal({ data, onClose, onSubmit, onSubmitPending, onAddCateg
     }
     setFormError("");
     setSaving(true);
-    if (type !== "transferencia" && !isCard && !alreadySettled) {
-      await onSubmitPending({ type, description, amount, date, category, recurring, repeatUntil, periodicity: "Mensal" });
-    } else {
-      await onSubmit({ type, description, amount, date, paymentMethod, category, cardId, parcelado, numParcelas, status: type === "despesa" ? "pago" : "recebida" });
+    try {
+      if (type !== "transferencia" && !isCard && !alreadySettled) {
+        await onSubmitPending({ type, description, amount, date, category, recurring, repeatUntil, periodicity: "Mensal" });
+      } else {
+        await onSubmit({ type, description, amount, date, paymentMethod, category, cardId, parcelado, numParcelas, status: type === "despesa" ? "pago" : "recebida" });
+      }
+    } catch (err) {
+      setFormError(err.message || "Não foi possível salvar. Tente de novo.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${COLORS.border}`, fontSize: 14 };
@@ -1737,8 +1756,13 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
     if (!alreadySettled && recurring && !repeatUntil) { setFormError('Escolha até quando repetir, ou marque "Não" em recorrente.'); return; }
     setFormError("");
     setSaving(true);
-    await onSubmit(rows, type, alreadySettled, recurring && !alreadySettled ? repeatUntil : null);
-    setSaving(false);
+    try {
+      await onSubmit(rows, type, alreadySettled, recurring && !alreadySettled ? repeatUntil : null);
+    } catch (err) {
+      setFormError(err.message || "Não foi possível salvar. Tente de novo.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputStyle = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13, background: "#0F1210", color: COLORS.text };
@@ -1807,15 +1831,22 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
 function ImportCardPurchasesModal({ data, cardId, onClose, onSubmit }) {
   const [rows, setRows] = useState([{ description: "", amount: "", parcelas: 1, category: data.categories[0], date: todayISO() }]);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const updateRow = (i, key, value) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, [key]: value } : r));
   const addRow = () => setRows(prev => [...prev, { description: "", amount: "", parcelas: 1, category: data.categories[0], date: todayISO() }]);
   const removeRow = (i) => setRows(prev => prev.filter((_, idx) => idx !== i));
 
   const submit = async () => {
+    setFormError("");
     setSaving(true);
-    await onSubmit(rows.filter(r => r.description && r.amount));
-    setSaving(false);
+    try {
+      await onSubmit(rows.filter(r => r.description && r.amount));
+    } catch (err) {
+      setFormError(err.message || "Não foi possível salvar. Tente de novo.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputStyle = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13, background: "#0F1210", color: COLORS.text };
@@ -1840,6 +1871,7 @@ function ImportCardPurchasesModal({ data, cardId, onClose, onSubmit }) {
         ))}
       </div>
       <button onClick={addRow} style={{ background: "none", border: `1px dashed ${COLORS.border}`, borderRadius: 10, padding: "9px 12px", fontSize: 12.5, cursor: "pointer", color: COLORS.textSoft, marginBottom: 14, width: "100%" }}>+ Adicionar compra</button>
+      {formError && <div style={{ color: COLORS.negative, fontSize: 12.5, marginBottom: 10 }}>{formError}</div>}
       <button disabled={saving} onClick={submit} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>{saving ? "Salvando…" : "Salvar compras"}</button>
     </ModalShell>
   );
