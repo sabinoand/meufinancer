@@ -273,9 +273,13 @@ function ModalShell({ title, onClose, children, wide }) {
 function SimpleFormModal({ title, fields, initial, onSubmit, onClose }) {
   const [values, setValues] = useState(initial || {});
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const onChange = (k, v) => setValues(prev => ({ ...prev, [k]: v }));
+  const visibleFields = fields.filter(f => !f.showIf || f.showIf(values));
   const submit = async () => {
-    if (fields.some(f => f.required && !values[f.key] && values[f.key] !== false)) return;
+    const missing = visibleFields.find(f => f.required && !values[f.key] && values[f.key] !== false);
+    if (missing) { setError(`Preencha "${missing.label}".`); return; }
+    setError("");
     setSaving(true);
     await onSubmit(values);
     setSaving(false);
@@ -283,12 +287,13 @@ function SimpleFormModal({ title, fields, initial, onSubmit, onClose }) {
   return (
     <ModalShell title={title} onClose={onClose}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {fields.filter(f => !f.showIf || f.showIf(values)).map(f => (
+        {visibleFields.map(f => (
           <div key={f.key}>
             <label style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textSoft, display: "block", marginBottom: 6 }}>{f.label}</label>
             <Field f={f} value={values[f.key]} onChange={onChange} />
           </div>
         ))}
+        {error && <div style={{ color: COLORS.negative, fontSize: 12.5 }}>{error}</div>}
         <button disabled={saving} onClick={submit} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>{saving ? "Salvando…" : "Salvar"}</button>
       </div>
     </ModalShell>
@@ -1068,8 +1073,23 @@ export default function App() {
         </div>}
       />
     );
+    const openCardInvoices = calc.cardUsage.filter(c => c.used > 0);
     return (
       <ListPage title="Contas a pagar" extraAction={{ label: "+ Lançamento", onClick: () => setModal({ type: "transaction" }) }}>
+        {openCardInvoices.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textSoft, textTransform: "uppercase", marginBottom: 8, letterSpacing: 0.3 }}>Faturas de cartão em aberto</div>
+            {openCardInvoices.map(c => (
+              <RowCard key={c.id}
+                left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>Fatura · {c.name}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>Vence dia {c.dueDay} de cada mês</div></>}
+                right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{fmt(c.used)}</span>
+                  <button onClick={() => { setSelectedCard(c.id); setView("cartoes"); }} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: COLORS.text }}>Ver fatura</button>
+                </div>}
+              />
+            ))}
+          </div>
+        )}
         {all.length === 0 ? <EmptyState text="Nenhuma conta cadastrada." /> : (
           <>
             {pendingGroups.map(g => (
@@ -1380,7 +1400,7 @@ export default function App() {
             { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
             { key: "account", label: "Conta onde entrou", placeholder: "Ex: Conta corrente" },
             { key: "recurring", label: "Recorrente?", type: "toggle" },
-            { key: "repeatUntil", label: "Repetir todo mês até", type: "month", showIf: v => v.recurring === true },
+            { key: "repeatUntil", label: "Repetir todo mês até", type: "month", showIf: v => v.recurring === true, required: true },
             { key: "note", label: "Observação" }
           ]} />
       )}
@@ -1420,7 +1440,7 @@ export default function App() {
             { key: "category", label: "Categoria", type: "select", options: data.categories, allowAddNew: true, onAddNew: promptNewCategory },
             { key: "recurring", label: "Recorrente?", type: "toggle" },
             { key: "periodicity", label: "Periodicidade", type: "select", options: ["Mensal", "Semanal", "Anual"], showIf: v => v.recurring === true },
-            { key: "repeatUntil", label: "Repetir até (mês)", type: "month", showIf: v => v.recurring === true },
+            { key: "repeatUntil", label: "Repetir até (mês)", type: "month", showIf: v => v.recurring === true, required: true },
             { key: "note", label: "Observação" }
           ]} />
       )}
@@ -1555,11 +1575,18 @@ function TransactionModal({ data, onClose, onSubmit, onSubmitPending, onAddCateg
   const [recurring, setRecurring] = useState(false);
   const [repeatUntil, setRepeatUntil] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const isCard = type === "despesa" && paymentMethod === "Cartão de crédito";
 
   const submit = async () => {
-    if (!description || !amount) return;
+    if (!description || !amount) { setFormError("Preencha descrição e valor."); return; }
+    if (isCard && !cardId) { setFormError("Selecione um cartão (ou cadastre um em Cartões primeiro)."); return; }
+    if (type !== "transferencia" && !isCard && !alreadySettled && recurring && !repeatUntil) {
+      setFormError('Escolha até quando repetir, ou marque "Não" em Recorrente.');
+      return;
+    }
+    setFormError("");
     setSaving(true);
     if (type !== "transferencia" && !isCard && !alreadySettled) {
       await onSubmitPending({ type, description, amount, date, category, recurring, repeatUntil, periodicity: "Mensal" });
@@ -1684,6 +1711,7 @@ function TransactionModal({ data, onClose, onSubmit, onSubmitPending, onAddCateg
           </>
         )}
 
+        {formError && <div style={{ color: COLORS.negative, fontSize: 12.5 }}>{formError}</div>}
         <button disabled={saving} onClick={submit} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>{saving ? "Salvando…" : "Salvar lançamento"}</button>
       </div>
     </ModalShell>
@@ -1699,12 +1727,15 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
   const [repeatUntil, setRepeatUntil] = useState("");
   const [rows, setRows] = useState([{ description: "", amount: "", category: data.categories[0], date: todayISO() }]);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const updateRow = (i, key, value) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, [key]: value } : r));
   const addRow = () => setRows(prev => [...prev, { description: "", amount: "", category: data.categories[0], date: todayISO() }]);
   const removeRow = (i) => setRows(prev => prev.filter((_, idx) => idx !== i));
 
   const submit = async () => {
+    if (!alreadySettled && recurring && !repeatUntil) { setFormError('Escolha até quando repetir, ou marque "Não" em recorrente.'); return; }
+    setFormError("");
     setSaving(true);
     await onSubmit(rows, type, alreadySettled, recurring && !alreadySettled ? repeatUntil : null);
     setSaving(false);
@@ -1765,6 +1796,7 @@ function BulkTransactionModal({ data, onClose, onSubmit }) {
 
       <button onClick={addRow} style={{ background: "none", border: `1px dashed ${COLORS.border}`, borderRadius: 10, padding: "9px 12px", fontSize: 12.5, cursor: "pointer", color: COLORS.textSoft, marginBottom: 14, width: "100%" }}>+ Adicionar linha</button>
 
+      {formError && <div style={{ color: COLORS.negative, fontSize: 12.5, marginBottom: 10 }}>{formError}</div>}
       <button disabled={saving} onClick={submit} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>{saving ? "Salvando…" : `Salvar ${rows.length} lançamento(s)`}</button>
     </ModalShell>
   );
