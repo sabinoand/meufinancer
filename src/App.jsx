@@ -65,6 +65,7 @@ const money = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", curre
 const fmtDate = (iso) => { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const monthKey = (iso) => (iso || "").slice(0, 7);
+const effectiveMonth = (t) => (t.paymentMethod === "Cartão de crédito" && t.fatura) ? t.fatura : monthKey(t.date);
 const shiftMonth = (mk, delta) => {
   const d = new Date(mk + "-15");
   d.setMonth(d.getMonth() + delta);
@@ -151,8 +152,8 @@ function useCalculations(data, selectedMonth) {
 
     const receitasMes = sumMonth(transactions, "receita", currentMonth);
     const receitasMesAnterior = sumMonth(transactions, "receita", lastMonth);
-    const despesasMes = transactions.filter(t => t.type === "despesa" && monthKey(t.date) === currentMonth).reduce((s, t) => s + t.amount, 0);
-    const despesasMesAnterior = transactions.filter(t => t.type === "despesa" && monthKey(t.date) === lastMonth).reduce((s, t) => s + t.amount, 0);
+    const despesasMes = transactions.filter(t => t.type === "despesa" && effectiveMonth(t) === currentMonth).reduce((s, t) => s + t.amount, 0);
+    const despesasMesAnterior = transactions.filter(t => t.type === "despesa" && effectiveMonth(t) === lastMonth).reduce((s, t) => s + t.amount, 0);
     const resultadoMes = receitasMes - despesasMes;
 
     const totalGuardado = savings.reduce((s, a) => s + a.balance, 0);
@@ -182,7 +183,7 @@ function useCalculations(data, selectedMonth) {
     const totalFaturasAbertas = cardUsage.reduce((s, c) => s + c.used, 0);
 
     const catTotals = {};
-    transactions.filter(t => t.type === "despesa" && monthKey(t.date) === currentMonth).forEach(t => {
+    transactions.filter(t => t.type === "despesa" && effectiveMonth(t) === currentMonth).forEach(t => {
       catTotals[t.category] = (catTotals[t.category] || 0) + t.amount;
     });
     const despesasPorCategoria = Object.entries(catTotals).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
@@ -202,7 +203,7 @@ function useCalculations(data, selectedMonth) {
         label: dt.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
         key: mk,
         receitas: sumMonth(transactions, "receita", mk),
-        despesas: transactions.filter(t => t.type === "despesa" && monthKey(t.date) === mk).reduce((s, t) => s + t.amount, 0)
+        despesas: transactions.filter(t => t.type === "despesa" && effectiveMonth(t) === mk).reduce((s, t) => s + t.amount, 0)
       });
     }
 
@@ -377,6 +378,8 @@ export default function App() {
   const [goalInput, setGoalInput] = useState("");
   const [showChangelog, setShowChangelog] = useState(false);
   const [hideValues, setHideValues] = useState(false);
+  const [expandedPagarMonths, setExpandedPagarMonths] = useState({});
+  const togglePagarMonth = (mk) => setExpandedPagarMonths(prev => ({ ...prev, [mk]: !prev[mk] }));
   const fmt = (v) => hideValues ? "R$ ••••••" : money(v);
   const passkeySupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
 
@@ -1073,7 +1076,6 @@ export default function App() {
     const all = data.payables;
     const pending = all.filter(p => p.status !== "pago").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     const paid = all.filter(p => p.status === "pago").sort((a, b) => b.dueDate.localeCompare(a.dueDate));
-    const pendingGroups = groupByMonth(pending, "dueDate", "asc");
     const paidGroups = groupByMonth(paid, "dueDate", "desc");
     const row = (p) => (
       <RowCard key={p.id}
@@ -1087,28 +1089,56 @@ export default function App() {
         </div>}
       />
     );
-    const openCardInvoices = calc.cardUsage.filter(c => c.used > 0);
+
+    // merge pending payables and open card invoices into one accordion, grouped by month
+    const monthMap = {};
+    pending.forEach(p => {
+      const mk = monthKey(p.dueDate);
+      (monthMap[mk] ??= { payables: [], invoices: [] }).payables.push(p);
+    });
+    data.cards.forEach(card => {
+      const invoices = calc.invoicesByCard[card.id] || {};
+      Object.entries(invoices).forEach(([fk, inv]) => {
+        if (data.paidInvoices[`${card.id}|${fk}`]) return;
+        (monthMap[fk] ??= { payables: [], invoices: [] }).invoices.push({ cardId: card.id, cardName: card.name, dueDay: card.dueDay, amount: inv.total });
+      });
+    });
+    const monthKeys = Object.keys(monthMap).sort();
+
     return (
       <ListPage title="Contas a pagar" extraAction={{ label: "+ Lançamento", onClick: () => setModal({ type: "transaction" }) }}>
-        {openCardInvoices.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textSoft, textTransform: "uppercase", marginBottom: 8, letterSpacing: 0.3 }}>Faturas de cartão em aberto</div>
-            {openCardInvoices.map(c => (
-              <RowCard key={c.id}
-                left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>Fatura · {c.name}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>Vence dia {c.dueDay} de cada mês</div></>}
-                right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{fmt(c.used)}</span>
-                  <button onClick={() => { setSelectedCard(c.id); setView("cartoes"); }} style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: COLORS.text }}>Ver fatura</button>
-                </div>}
-              />
-            ))}
-          </div>
-        )}
-        {all.length === 0 ? <EmptyState text="Nenhuma conta cadastrada." /> : (
+        {monthKeys.length === 0 && paidGroups.length === 0 ? <EmptyState text="Nenhuma conta cadastrada." /> : (
           <>
-            {pendingGroups.map(g => (
-              <div key={g.month}><MonthGroupHeader label={g.label} total={g.items.reduce((s, p) => s + p.amount, 0)} />{g.items.map(row)}</div>
-            ))}
+            {monthKeys.map(mk => {
+              const bucket = monthMap[mk];
+              const total = bucket.payables.reduce((s, p) => s + p.amount, 0) + bucket.invoices.reduce((s, i) => s + i.amount, 0);
+              const isOpen = !!expandedPagarMonths[mk];
+              return (
+                <div key={mk} style={{ marginBottom: 10 }}>
+                  <button onClick={() => togglePagarMonth(mk)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer" }}>
+                    <span style={{ fontWeight: 700, color: COLORS.text, fontSize: 14, textTransform: "capitalize" }}>{monthLabel(mk)}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontWeight: 700, color: COLORS.text, fontSize: 14.5 }}>{fmt(total)}</span>
+                      <ChevronRight size={15} color={COLORS.textSoft} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {bucket.invoices.map(inv => (
+                        <RowCard key={`inv-${inv.cardId}-${mk}`}
+                          left={<><div style={{ fontWeight: 600, color: COLORS.text, fontSize: 14 }}>Fatura · {inv.cardName}</div><div style={{ fontSize: 12, color: COLORS.textSoft }}>Vence dia {inv.dueDay} · Cartão de crédito</div></>}
+                          right={<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.text }}>{fmt(inv.amount)}</span>
+                            <button onClick={() => { setSelectedCard(inv.cardId); setView("cartoes"); }} style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: COLORS.text }}>Ver fatura</button>
+                          </div>}
+                        />
+                      ))}
+                      {bucket.payables.map(row)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {paidGroups.length > 0 && (
               <>
                 <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text, marginTop: 22, borderTop: `1px solid ${COLORS.border}`, paddingTop: 16 }}>Pagas</div>
