@@ -5,8 +5,10 @@ import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
 import Estoque from "./Estoque.jsx";
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 const NOVIDADES = [
+  "Estoque redesenhado: busca, filtros, 4 formas de visualização e aba Histórico",
+  "Clique em um item do estoque para ver quanto tem, quanto está pedido e se sobra ou falta para concluir",
   "Novo: Estoque de caixas prontas (entrada e saída) para a terceirizada",
   "Ao dar saída para entrega, dá para gerar as etiquetas com QR code de cada caixa",
   "Quem lê o QR vê qual empresa fabricou e pode dar nota ao produto",
