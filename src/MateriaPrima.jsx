@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Search, X, ArrowDownToLine, ArrowUpFromLine, Plus, Pencil } from "lucide-react";
+import { Search, X, ArrowDownToLine, ArrowUpFromLine, Plus, Pencil, Folder, FolderPlus } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 
 const UNIDADES = ["un", "m", "m²", "kg", "g", "L", "mL", "rolo", "pacote", "caixa", "par", "folha", "metro linear"];
@@ -32,6 +32,8 @@ export default function MateriaPrima({ perfil }) {
   const admin = perfil.papel === "admin";
   const [aba, setAba] = useState("estoque");
   const [materias, setMaterias] = useState([]);
+  const [grupos, setGrupos] = useState([]);
+  const [grupoAberto, setGrupoAberto] = useState(null);
   const [saldos, setSaldos] = useState([]);
   const [movs, setMovs] = useState([]);
   const [empresas, setEmpresas] = useState([]);
@@ -53,11 +55,12 @@ export default function MateriaPrima({ perfil }) {
       supabase.from("materias").select("*").order("nome"),
       supabase.from("materia_saldo").select("*"),
       supabase.from("materia_mov").select("*").order("created_at", { ascending: false }).limit(1000),
-      supabase.from("empresas").select("id,nome")
+      supabase.from("empresas").select("id,nome"),
+      supabase.from("materia_grupos").select("*").order("nome")
     ]);
     const er = rs.find(r => r.error);
     if (er) return setErro(er.error.message);
-    setMaterias(rs[0].data); setSaldos(rs[1].data); setMovs(rs[2].data); setEmpresas(rs[3].data);
+    setMaterias(rs[0].data); setSaldos(rs[1].data); setMovs(rs[2].data); setEmpresas(rs[3].data); setGrupos(rs[4].data);
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -82,11 +85,21 @@ export default function MateriaPrima({ perfil }) {
   const kBaixo = ativos.filter(m => m.baixo).length;
   const unidadesUsadas = [...new Set(materias.map(m => m.unidade))].sort();
   const selM = sel && linhas.find(m => m.id === sel);
+  const nomeGrupo = (id) => grupos.find(g => g.id === id)?.nome || "";
+  const filtrando = !!(busca.trim() || fUn || soBaixo || soComEstoque);
+  const grupoSel = grupoAberto && grupos.find(g => g.id === grupoAberto);
+  const resumoGrupo = (g) => {
+    const its = linhas.filter(m => m.grupo_id === g.id && m.ativo);
+    return { n: its.length, total: its.reduce((a, m) => a + m.total, 0), baixo: its.filter(m => m.baixo).length };
+  };
+  // o que aparece na tabela: dentro de um grupo, busca/filtro (lista plana) ou grupos + itens sem grupo
+  const itensTabela = grupoSel ? vis.filter(m => m.grupo_id === grupoSel.id) : filtrando ? vis : vis.filter(m => !m.grupo_id);
+  const gruposTabela = !grupoSel && !filtrando ? grupos.filter(g => !admin || true) : [];
 
   function abrirItem(m) {
     const un = m && !UNIDADES.includes(m.unidade) ? "__outra" : (m?.unidade || "un");
-    setF(m ? { id: m.id, nome: m.nome, un, outra: un === "__outra" ? m.unidade : "", valor: String(m.valor), minimo: String(m.minimo), ativo: m.ativo }
-           : { nome: "", un: "un", outra: "", valor: "", minimo: "", ativo: true });
+    setF(m ? { id: m.id, nome: m.nome, un, outra: un === "__outra" ? m.unidade : "", valor: String(m.valor), minimo: String(m.minimo), ativo: m.ativo, grupo: m.grupo_id || "", novoGrupo: "" }
+           : { nome: "", un: "un", outra: "", valor: "", minimo: "", ativo: true, grupo: grupoAberto || "", novoGrupo: "" });
     setErro(""); setModal({ tipo: "item" });
   }
   function abrirMov(tipo, m) {
@@ -100,8 +113,19 @@ export default function MateriaPrima({ perfil }) {
     const valor = f.valor === "" ? 0 : num(f.valor), minimo = f.minimo === "" ? 0 : num(f.minimo);
     if (!f.nome.trim() || !unidade) return setErro("Informe o nome e a unidade de medida.");
     if (isNaN(valor) || valor < 0 || isNaN(minimo) || minimo < 0) return setErro("Valor e mínimo devem ser números positivos.");
+    if (f.grupo === "__novo" && !f.novoGrupo.trim()) return setErro("Digite o nome do novo grupo.");
     setBusy(true);
-    const dados = { nome: f.nome.trim(), unidade, valor, minimo };
+    let grupo_id = f.grupo && f.grupo !== "__novo" ? f.grupo : null;
+    if (f.grupo === "__novo") {
+      const ja = grupos.find(g => g.nome.toLowerCase() === f.novoGrupo.trim().toLowerCase());
+      if (ja) grupo_id = ja.id;
+      else {
+        const { data: g, error: eg } = await supabase.from("materia_grupos").insert({ nome: f.novoGrupo.trim(), empresa_id: perfil.empresa_id }).select().single();
+        if (eg) { setBusy(false); return setErro(eg.message); }
+        grupo_id = g.id;
+      }
+    }
+    const dados = { nome: f.nome.trim(), unidade, valor, minimo, grupo_id };
     const { error } = f.id
       ? await supabase.from("materias").update({ ...dados, ativo: f.ativo }).eq("id", f.id)
       : await supabase.from("materias").insert({ ...dados, empresa_id: perfil.empresa_id });
@@ -121,6 +145,25 @@ export default function MateriaPrima({ perfil }) {
     if (error) return setErro(error.message);
     setModal(null); carregar();
   }
+  function abrirGrupo(g) { setF({ gid: g?.id, gnome: g?.nome || "" }); setErro(""); setModal({ tipo: "grupo" }); }
+  async function salvarGrupo(e) {
+    e.preventDefault();
+    if (!f.gnome.trim()) return setErro("Informe o nome do grupo.");
+    setBusy(true);
+    const { error } = f.gid
+      ? await supabase.from("materia_grupos").update({ nome: f.gnome.trim() }).eq("id", f.gid)
+      : await supabase.from("materia_grupos").insert({ nome: f.gnome.trim(), empresa_id: perfil.empresa_id });
+    setBusy(false);
+    if (error) return setErro(/duplicate|unique/i.test(error.message) ? "Já existe um grupo com esse nome." : error.message);
+    setModal(null); carregar();
+  }
+  async function excluirGrupo() {
+    const qtdItens = linhas.filter(m => m.grupo_id === f.gid).length;
+    if (!confirm(`Excluir o grupo "${f.gnome}"? ${qtdItens ? `Os ${qtdItens} itens dele não serão apagados: ficam sem grupo.` : ""}`)) return;
+    const { error } = await supabase.from("materia_grupos").delete().eq("id", f.gid);
+    if (error) return setErro(error.message);
+    setModal(null); setGrupoAberto(null); carregar();
+  }
   async function desfazer(m) {
     if (!confirm("Desfazer este lançamento?")) return;
     const { error } = await supabase.rpc("excluir_materia_mov", { p_id: m.id });
@@ -134,7 +177,7 @@ export default function MateriaPrima({ perfil }) {
       <style>{css}</style>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div><h2 style={{ margin: 0 }}>Estoque de matéria-prima</h2><div className="muted">Itens, unidade de medida, valor e movimentações</div></div>
-        {!admin && <button className="btn primary" onClick={() => abrirItem(null)}><Plus size={14} /> Novo item</button>}
+        {!admin && <div className="row"><button className="btn" onClick={() => abrirGrupo(null)}><FolderPlus size={14} /> Novo grupo</button><button className="btn primary" onClick={() => abrirItem(null)}><Plus size={14} /> Novo item</button></div>}
       </div>
       <div className="subtabs" style={{ marginTop: 12 }}>
         <button className={aba === "estoque" ? "on" : ""} onClick={() => setAba("estoque")}>Estoque</button>
@@ -156,15 +199,35 @@ export default function MateriaPrima({ perfil }) {
             <label style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><input type="checkbox" checked={soComEstoque} onChange={e => setSoComEstoque(e.target.checked)} />Só com estoque</label>
             <label style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><input type="checkbox" checked={verInativos} onChange={e => setVerInativos(e.target.checked)} />Inativos</label>
           </div>
-          {!vis.length && <p className="muted">Nenhum item. {!admin && "Clique em “+ Novo item” para cadastrar."}</p>}
+          {grupoSel && (
+            <div className="row" style={{ marginBottom: 10 }}>
+              <button className="btn sm" onClick={() => setGrupoAberto(null)}>← Todos os itens</button>
+              <Folder size={16} color="#d97706" /><strong style={{ fontSize: 16 }}>{grupoSel.nome}</strong>
+              {!admin && <button className="btn sm" onClick={() => abrirGrupo(grupoSel)}><Pencil size={13} /> Renomear / excluir grupo</button>}
+            </div>
+          )}
+          {!itensTabela.length && !gruposTabela.length && <p className="muted">{grupoSel ? "Nenhum item neste grupo." : "Nenhum item."} {!admin && "Use “+ Novo item” para cadastrar."}</p>}
           <div style={{ overflowX: "auto" }}>
-            {!!vis.length && (
+            {(!!itensTabela.length || !!gruposTabela.length) && (
               <table>
                 <thead><tr><th>Item</th>{admin && <th>Empresa</th>}<th>Unidade</th><th style={{ textAlign: "right" }}>Valor unit.</th><th style={{ textAlign: "right" }}>Em estoque</th><th style={{ textAlign: "right" }}>Valor em estoque</th><th>Situação</th>{!admin && <th></th>}</tr></thead>
                 <tbody>
-                  {vis.map(m => (
+                  {gruposTabela.map(g => {
+                    const r = resumoGrupo(g);
+                    return (
+                      <tr key={g.id} className="rowclick" onClick={() => setGrupoAberto(g.id)}>
+                        <td><Folder size={15} color="#d97706" style={{ verticalAlign: "-2px" }} /> <strong>{g.nome}</strong></td>
+                        {admin && <td>{emp(g.empresa_id)}</td>}
+                        <td className="muted">{r.n} {r.n === 1 ? "item" : "itens"}</td><td></td><td></td>
+                        <td style={{ textAlign: "right" }}>{brl(r.total)}</td>
+                        <td>{r.baixo ? <span className="pill falta">{r.baixo} abaixo do mínimo</span> : <span className="pill ok">OK</span>}</td>
+                        {!admin && <td />}
+                      </tr>
+                    );
+                  })}
+                  {itensTabela.map(m => (
                     <tr key={m.id} className="rowclick" onClick={() => setSel(m.id)} style={m.ativo ? undefined : { opacity: .5 }}>
-                      <td><strong>{m.nome}</strong>{!m.ativo && <span className="muted"> (inativo)</span>}</td>
+                      <td><strong>{m.nome}</strong>{!m.ativo && <span className="muted"> (inativo)</span>}{filtrando && m.grupo_id && <div className="muted" style={{ fontSize: 12 }}><Folder size={11} /> {nomeGrupo(m.grupo_id)}</div>}</td>
                       {admin && <td>{emp(m.empresa_id)}</td>}
                       <td>{m.unidade}</td>
                       <td style={{ textAlign: "right" }}>{brl(m.valor)}</td>
@@ -217,7 +280,7 @@ export default function MateriaPrima({ perfil }) {
           <div className="modal-bg" style={{ background: "rgba(0,0,0,.3)", zIndex: 55 }} onClick={() => setSel(null)} />
           <div className="sidep">
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <div><h2 style={{ margin: 0 }}>{selM.nome}</h2><div className="muted">Unidade: {selM.unidade}{admin && ` · ${emp(selM.empresa_id)}`}</div></div>
+              <div><h2 style={{ margin: 0 }}>{selM.nome}</h2><div className="muted">{selM.grupo_id ? `${nomeGrupo(selM.grupo_id)} · ` : ""}Unidade: {selM.unidade}{admin && ` · ${emp(selM.empresa_id)}`}</div></div>
               <button className="btn sm" onClick={() => setSel(null)}><X size={16} /></button>
             </div>
             <div className="big3">
@@ -246,6 +309,14 @@ export default function MateriaPrima({ perfil }) {
         <div className="modal-bg"><form onSubmit={salvarItem} className="card modal" style={{ display: "grid", gap: 10 }}>
           <h2 style={{ margin: 0 }}>{f.id ? "Editar item" : "Novo item de matéria-prima"}</h2>
           <label>Nome do item<input value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} placeholder="Ex.: Espuma D28, Cola, Grampo..." /></label>
+          <label>Grupo (opcional)
+            <select value={f.grupo} onChange={e => setF({ ...f, grupo: e.target.value })}>
+              <option value="">Sem grupo</option>
+              {grupos.map(g => <option key={g.id} value={g.id}>{g.nome}</option>)}
+              <option value="__novo">+ Criar novo grupo...</option>
+            </select>
+          </label>
+          {f.grupo === "__novo" && <input placeholder="Nome do novo grupo (ex.: Tecido, Espuma)" value={f.novoGrupo} onChange={e => setF({ ...f, novoGrupo: e.target.value })} />}
           <label>Unidade de medida
             <select value={f.un} onChange={e => setF({ ...f, un: e.target.value })}>
               {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
@@ -260,6 +331,19 @@ export default function MateriaPrima({ perfil }) {
           {f.id && <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><input type="checkbox" checked={f.ativo} onChange={e => setF({ ...f, ativo: e.target.checked })} />Item ativo</label>}
           {erro && <div className="err">{erro}</div>}
           <div className="row"><button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Salvar"}</button><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button></div>
+        </form></div>
+      )}
+
+      {modal?.tipo === "grupo" && (
+        <div className="modal-bg"><form onSubmit={salvarGrupo} className="card modal" style={{ display: "grid", gap: 10 }}>
+          <h2 style={{ margin: 0 }}>{f.gid ? "Renomear grupo" : "Novo grupo"}</h2>
+          <label>Nome do grupo<input value={f.gnome} onChange={e => setF({ ...f, gnome: e.target.value })} placeholder="Ex.: Tecido, Espuma, Ferragens" autoFocus /></label>
+          {erro && <div className="err">{erro}</div>}
+          <div className="row">
+            <button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Salvar"}</button>
+            <button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button>
+            {f.gid && <button type="button" className="btn" style={{ marginLeft: "auto", color: "#b42318" }} onClick={excluirGrupo}>Excluir grupo</button>}
+          </div>
         </form></div>
       )}
 

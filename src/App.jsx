@@ -6,8 +6,9 @@ import Calendario from "./Calendario.jsx";
 import Estoque from "./Estoque.jsx";
 import MateriaPrima from "./MateriaPrima.jsx";
 
-const VERSION = "0.9.0";
+const VERSION = "0.9.1";
 const NOVIDADES = [
+  "Matéria-prima agora tem grupos (ex.: Tecido, Espuma). Itens podem ficar sem grupo",
   "Novo: Matéria-prima — cadastre itens com unidade de medida e valor, e controle entradas e saídas",
   "Aviso quando um item fica abaixo do estoque mínimo",
   "Estoque agrupado por cadeira: clique na cadeira para ver o estoque de cada tecido",
