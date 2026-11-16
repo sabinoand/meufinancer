@@ -11,7 +11,7 @@ const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${Strin
 const num = (v) => parseFloat(String(v).replace(",", "."));
 const nomeMes = (ym) => { const [y, m] = ym.split("-").map(Number); return `${MESES[m - 1]} ${y}`; };
 const somaMes = (ym, n) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-const linhaVazia = () => ({ k: Math.random(), descricao: "", qtd: "", un: "un", outra: "", valor: "", est: false, destino: "__novo", grupo: "" });
+const linhaVazia = () => ({ k: Math.random(), materia_id: "", nNome: "", nUn: "un", nOutra: "", nGrupo: "", qtd: "", valor: "", est: false });
 
 const css = `
 .kpis3{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
@@ -71,13 +71,14 @@ export default function Requisicoes({ perfil }) {
     if (r) {
       const its = itensDe(r.id);
       setF({ id: r.id, numero: r.numero, data: r.data, obs: r.observacao || "", linhas: its.map(i => ({
-        k: Math.random(), descricao: i.descricao, qtd: String(i.quantidade), un: UNIDADES.includes(i.unidade) ? i.unidade : "__outra",
-        outra: UNIDADES.includes(i.unidade) ? "" : i.unidade, valor: String(i.valor_unit), est: false, destino: "__novo", grupo: "" })) });
+        ...linhaVazia(), materia_id: i.materia_id || materias.find(m => m.nome.trim().toLowerCase() === i.descricao.trim().toLowerCase())?.id || "",
+        qtd: String(i.quantidade), valor: String(i.valor_unit) })) });
     } else setF({ numero: "", data: hojeIso(), obs: "", linhas: [linhaVazia()] });
     setModal({ tipo: "form" });
   }
   const setLinha = (k, patch) => setF(x => ({ ...x, linhas: x.linhas.map(l => l.k === k ? { ...l, ...patch } : l) }));
-  const unidadeDe = (l) => l.un === "__outra" ? l.outra.trim() : l.un;
+  const matDe = (l) => materias.find(m => m.id === l.materia_id);
+  const unidadeDe = (l) => matDe(l)?.unidade || "";
   const totalLinha = (l) => { const q = num(l.qtd), v = num(l.valor); return isNaN(q) || isNaN(v) ? 0 : Math.round(q * v * 100) / 100; };
   const totalForm = (f.linhas || []).reduce((a, l) => a + totalLinha(l), 0);
 
@@ -85,11 +86,10 @@ export default function Requisicoes({ perfil }) {
     if (!f.numero.trim()) return "Informe o número da requisição.";
     if (!f.data) return "Informe a data.";
     for (const l of f.linhas) {
-      if (!l.descricao.trim()) return "Preencha a descrição de todos os itens (ou remova a linha vazia).";
+      if (!matDe(l)) return l.materia_id === "__novo" ? "Termine de cadastrar o item novo (botão “Cadastrar item”) ou escolha um item da lista." : "Escolha o item de cada linha (ou remova a linha vazia).";
       const q = num(l.qtd), v = num(l.valor);
-      if (isNaN(q) || q <= 0) return `Informe a quantidade de "${l.descricao}".`;
-      if (isNaN(v) || v < 0) return `Informe o valor unitário de "${l.descricao}".`;
-      if (!unidadeDe(l)) return `Informe a unidade de "${l.descricao}".`;
+      if (isNaN(q) || q <= 0) return `Informe a quantidade de "${matDe(l).nome}".`;
+      if (isNaN(v) || v < 0) return `Informe o valor unitário de "${matDe(l).nome}".`;
     }
     return "";
   }
@@ -98,11 +98,6 @@ export default function Requisicoes({ perfil }) {
     const m = validar(); if (m) return setErro(m);
     setErro("");
     if (f.id) return salvar(false);
-    // pré-seleciona item de estoque com o mesmo nome, se existir
-    setF(x => ({ ...x, linhas: x.linhas.map(l => {
-      const igual = materias.find(m => m.ativo && m.nome.trim().toLowerCase() === l.descricao.trim().toLowerCase());
-      return { ...l, destino: igual ? igual.id : "__novo" };
-    }) }));
     setPasso(2);
   }
 
@@ -139,7 +134,7 @@ export default function Requisicoes({ perfil }) {
       reqId = data.id;
     }
     const { data: novos, error: ei } = await supabase.from("requisicao_itens").insert(
-      f.linhas.map(l => ({ requisicao_id: reqId, empresa_id: perfil.empresa_id, descricao: l.descricao.trim(), quantidade: num(l.qtd), unidade: unidadeDe(l), valor_unit: num(l.valor) }))
+      f.linhas.map(l => ({ requisicao_id: reqId, empresa_id: perfil.empresa_id, materia_id: l.materia_id, descricao: matDe(l).nome, quantidade: num(l.qtd), unidade: unidadeDe(l), valor_unit: num(l.valor) }))
     ).select();
     if (ei) { setBusy(false); return setErro(ei.message); }
     const falhas = []; let enviados = 0;
@@ -147,7 +142,7 @@ export default function Requisicoes({ perfil }) {
       // o insert devolve os itens na mesma ordem das linhas
       for (let idx = 0; idx < f.linhas.length; idx++) {
         const l = f.linhas[idx]; if (!l.est) continue;
-        const r = await enviarParaEstoque(novos[idx], l.destino, l.grupo);
+        const r = await enviarParaEstoque(novos[idx], novos[idx].materia_id, "");
         if (r) falhas.push(r); else enviados++;
       }
     }
@@ -156,7 +151,27 @@ export default function Requisicoes({ perfil }) {
     carregar();
   }
 
+  async function cadastrarMaterial(l) {
+    const nome = l.nNome.trim(), unidade = l.nUn === "__outra" ? l.nOutra.trim() : l.nUn;
+    if (!nome || !unidade) return setErro("Informe o nome e a unidade do item novo.");
+    const ja = materias.find(m => m.nome.trim().toLowerCase() === nome.toLowerCase());
+    if (ja) { setErro(""); return setLinha(l.k, { materia_id: ja.id, valor: l.valor || String(ja.valor) }); }
+    const { data, error } = await supabase.from("materias").insert({ empresa_id: perfil.empresa_id, nome, unidade, valor: num(l.valor) || 0, minimo: 0, grupo_id: l.nGrupo || null }).select().single();
+    if (error) return setErro(error.message);
+    setErro(""); setMaterias(ms => [...ms, data]); setLinha(l.k, { materia_id: data.id });
+  }
+  function escolherMaterial(l, v) {
+    if (v === "__novo") return setLinha(l.k, { materia_id: "__novo" });
+    const m = materias.find(x => x.id === v);
+    setLinha(l.k, { materia_id: v, valor: l.valor || (m ? String(m.valor) : "") });
+  }
+
   function abrirEstoque(item) {
+    if (item.materia_id && materias.find(m => m.id === item.materia_id)) {
+      if (!confirm(`Dar entrada de ${qtd(item.quantidade)} ${item.unidade} de “${item.descricao}” no estoque?`)) return;
+      enviarParaEstoque(item, item.materia_id, "").then(r => { if (r) setErro(r); else { setAviso(`“${item.descricao}” lançado no estoque.`); carregar(); } });
+      return;
+    }
     const igual = materias.find(m => m.ativo && m.nome.trim().toLowerCase() === item.descricao.trim().toLowerCase());
     setF({ item, destino: igual ? igual.id : "__novo", grupo: "" }); setErro(""); setModal({ tipo: "estoque" });
   }
@@ -297,11 +312,24 @@ export default function Requisicoes({ perfil }) {
               <strong>Itens da requisição</strong>
               {f.linhas.map(l => (
                 <div key={l.k} className="linha">
-                  <input placeholder="Descrição (ex.: Lata de cola)" value={l.descricao} onChange={e => setLinha(l.k, { descricao: e.target.value })} />
+                  <select value={l.materia_id} onChange={e => escolherMaterial(l, e.target.value)}>
+                    <option value="">— escolha o item do estoque —</option>
+                    {grupos.map(g => { const its = materias.filter(m => m.ativo && m.grupo_id === g.id); return its.length ? <optgroup key={g.id} label={g.nome}>{its.map(m => <option key={m.id} value={m.id}>{m.nome} ({m.unidade})</option>)}</optgroup> : null; })}
+                    {materias.filter(m => m.ativo && !m.grupo_id).map(m => <option key={m.id} value={m.id}>{m.nome} ({m.unidade})</option>)}
+                    <option value="__novo">+ Cadastrar item novo...</option>
+                  </select>
+                  {l.materia_id === "__novo" && (
+                    <div className="row" style={{ background: "#f8f9fc", padding: 8, borderRadius: 8 }}>
+                      <input placeholder="Nome do item novo" style={{ flex: 1, minWidth: 160 }} value={l.nNome} onChange={e => setLinha(l.k, { nNome: e.target.value })} />
+                      <select value={l.nUn} onChange={e => setLinha(l.k, { nUn: e.target.value })}>{UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}<option value="__outra">Outra...</option></select>
+                      {l.nUn === "__outra" && <input placeholder="Unidade" style={{ width: 90 }} value={l.nOutra} onChange={e => setLinha(l.k, { nOutra: e.target.value })} />}
+                      {grupos.length > 0 && <select value={l.nGrupo} onChange={e => setLinha(l.k, { nGrupo: e.target.value })}><option value="">Sem grupo</option>{grupos.map(g => <option key={g.id} value={g.id}>{g.nome}</option>)}</select>}
+                      <button type="button" className="btn sm primary" onClick={() => cadastrarMaterial(l)}>Cadastrar item</button>
+                    </div>
+                  )}
                   <div className="row">
                     <input type="number" step="any" min="0" placeholder="Qtd" style={{ width: 90 }} value={l.qtd} onChange={e => setLinha(l.k, { qtd: e.target.value })} />
-                    <select value={l.un} onChange={e => setLinha(l.k, { un: e.target.value })}>{UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}<option value="__outra">Outra...</option></select>
-                    {l.un === "__outra" && <input placeholder="Unidade" style={{ width: 90 }} value={l.outra} onChange={e => setLinha(l.k, { outra: e.target.value })} />}
+                    <span className="muted">{unidadeDe(l) || "unid."}</span>
                     <input type="number" step="any" min="0" placeholder="Valor unit. R$" style={{ width: 130 }} value={l.valor} onChange={e => setLinha(l.k, { valor: e.target.value })} />
                     <strong style={{ marginLeft: "auto" }}>{brl(totalLinha(l))}</strong>
                     {f.linhas.length > 1 && <button type="button" className="btn sm" onClick={() => setF(x => ({ ...x, linhas: x.linhas.filter(y => y.k !== l.k) }))}>Remover</button>}
@@ -322,14 +350,13 @@ export default function Requisicoes({ perfil }) {
           {passo === 2 && (
             <>
               <div className="kpi"><small>Requisição {f.numero} · {fmtData(f.data)}</small><b>Total: {brl(totalForm)}</b></div>
-              <p className="muted" style={{ margin: 0 }}>Marque os itens que você quer colocar no estoque de matéria-prima. Os que não marcar ficam só na requisição (dá para adicionar depois).</p>
+              <p className="muted" style={{ margin: 0 }}>Marque os itens que você quer colocar no estoque de matéria-prima agora (entra como compra: soma a quantidade e atualiza o valor do item). Os que não marcar ficam só na requisição — dá para adicionar depois.</p>
               {f.linhas.map(l => (
                 <div key={l.k} className="linha">
                   <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <input type="checkbox" checked={l.est} onChange={e => setLinha(l.k, { est: e.target.checked })} />
-                    <span><strong>{l.descricao}</strong> — {qtd(num(l.qtd))} {unidadeDe(l)} · {brl(totalLinha(l))}</span>
+                    <span><strong>{matDe(l)?.nome}</strong> — {qtd(num(l.qtd))} {unidadeDe(l)} · {brl(totalLinha(l))}</span>
                   </label>
-                  {l.est && seletorDestino(l.destino, v => setLinha(l.k, { destino: v }), l.descricao, l.grupo, v => setLinha(l.k, { grupo: v }))}
                 </div>
               ))}
               {erro && <div className="err">{erro}</div>}

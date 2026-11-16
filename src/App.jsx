@@ -7,7 +7,7 @@ import Estoque from "./Estoque.jsx";
 import MateriaPrima from "./MateriaPrima.jsx";
 import Requisicoes from "./Requisicoes.jsx";
 
-const VERSION = "0.10.0";
+const VERSION = "0.10.1";
 const NOVIDADES = [
   "Novo: aba Requisições (só terceirizadas) — lance as requisições da Cel, separadas por mês, com o total que está devendo",
   "Ao lançar, escolha item por item o que vai para o estoque de matéria-prima",
