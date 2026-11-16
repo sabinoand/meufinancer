@@ -140,13 +140,13 @@ export default function Estoque({ perfil }) {
     if (soComEstoque && l.estoque <= 0) return false;
     return true;
   });
+  const chaveG = (l) => `${l.empresa_id}|${l.cadeira_id}`;
   const base = grupo ? linhas.filter(l => chaveG(l) === grupo) : linhas;
   const kEstoque = base.reduce((a, l) => a + Math.max(0, l.estoque), 0);
   const kPedidas = base.reduce((a, l) => a + l.faltaEnviar, 0);
   const kFalta = base.reduce((a, l) => a + Math.max(0, -l.dif), 0);
   const kSobra = base.reduce((a, l) => a + Math.max(0, l.dif), 0);
   const selLinha = sel && linhas.find(l => l.key === sel);
-  const chaveG = (l) => `${l.empresa_id}|${l.cadeira_id}`;
   const grupos = useMemo(() => {
     const m = new Map();
     linhas.forEach(l => {
