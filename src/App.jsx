@@ -5,8 +5,10 @@ import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
 import Estoque from "./Estoque.jsx";
 
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const NOVIDADES = [
+  "Estoque agrupado por cadeira: clique na cadeira para ver o estoque de cada tecido",
+  "\"Cor\" agora se chama \"Tecido\" em todo o sistema",
   "Estoque redesenhado: busca, filtros, 4 formas de visualização e aba Histórico",
   "Clique em um item do estoque para ver quanto tem, quanto está pedido e se sobra ou falta para concluir",
   "Novo: Estoque de caixas prontas (entrada e saída) para a terceirizada",
@@ -15,8 +17,8 @@ const NOVIDADES = [
   "Novo: Calendário de entregas — clique no dia para ver os pedidos",
   "Registre a chegada de cada item e a quantidade de caixas; se vier faltando, o pedido continua em aberto",
   "Novo: aba Pedidos — a Cel Móveis lança o pedido e escolhe a terceirizada",
-  "Cada pedido tem vários itens: cadeira + cor (número) + quantidade de caixas",
-  "Dá para cadastrar nova cadeira e nova cor na hora de lançar o pedido",
+  "Cada pedido tem vários itens: cadeira + tecido (número) + quantidade de caixas",
+  "Dá para cadastrar nova cadeira e novo tecido na hora de lançar o pedido",
   "Cada terceirizada vê somente os seus pedidos",
   "Em breve: calendário de entregas, QR code e ranking"
 ];
@@ -260,7 +262,7 @@ const STATUS = { aberto: "Em aberto", parcial: "Recebido parcial", entregue: "En
 const fmtData = (d) => d ? d.split("-").reverse().join("/") : "";
 const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
-const corTxt = (c) => c ? `Cor ${c.numero}${c.nome ? " – " + c.nome : ""}` : "—";
+const corTxt = (c) => c ? `Tecido ${c.numero}${c.nome ? " – " + c.nome : ""}` : "—";
 
 /* Seletor com cadastro rápido: escolhe da lista ou clica em "+" para criar na hora */
 function SeletorNovo({ label, valor, opcoes, onChange, onCriar, campos }) {
@@ -335,9 +337,9 @@ function Pedidos({ perfil }) {
     return {};
   }
   async function criarCor({ numero, nome }) {
-    if (!numero?.trim()) return { erro: "Digite o número da cor." };
+    if (!numero?.trim()) return { erro: "Digite o número do tecido." };
     const { data, error } = await supabase.from("cores").insert({ numero: numero.trim(), nome: nome?.trim() || null }).select().single();
-    if (error) return { erro: /duplicate|unique/i.test(error.message) ? "Esse número de cor já existe." : error.message };
+    if (error) return { erro: /duplicate|unique/i.test(error.message) ? "Esse número de tecido já existe." : error.message };
     setCores(l => [...l, data].sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true })));
     return {};
   }
@@ -347,7 +349,7 @@ function Pedidos({ perfil }) {
     e.preventDefault();
     const linhas = f.linhas.map(l => ({ ...l, n: parseInt(l.caixas, 10) }));
     if (!f.empresa_id || !f.data_entrega) return setErro("Escolha a terceirizada e a data de entrega.");
-    if (linhas.some(l => !l.cadeira_id || !l.cor_id || !l.n || l.n < 1)) return setErro("Em cada item, escolha a cadeira, a cor e a quantidade de caixas.");
+    if (linhas.some(l => !l.cadeira_id || !l.cor_id || !l.n || l.n < 1)) return setErro("Em cada item, escolha a cadeira, o tecido e a quantidade de caixas.");
     const { data: ped, error } = await supabase.from("pedidos").insert({
       empresa_id: f.empresa_id, data_entrega: f.data_entrega, observacao: f.observacao.trim() || null
     }).select().single();
@@ -407,7 +409,7 @@ function Pedidos({ perfil }) {
             <div key={l.k} className="row" style={{ alignItems: "flex-end", padding: 10, background: "#fff", borderRadius: 10 }}>
               <SeletorNovo label="Cadeira" valor={l.cadeira_id} opcoes={opCad} campos={[{ k: "nome", ph: "Nome da cadeira" }]}
                 onChange={v => setLinha(l.k, { cadeira_id: v })} onCriar={criarCadeira} />
-              <SeletorNovo label="Cor (número)" valor={l.cor_id} opcoes={opCor} campos={[{ k: "numero", ph: "Número da cor" }, { k: "nome", ph: "Nome da cor (opcional)" }]}
+              <SeletorNovo label="Tecido (número)" valor={l.cor_id} opcoes={opCor} campos={[{ k: "numero", ph: "Número do tecido" }, { k: "nome", ph: "Nome do tecido (opcional)" }]}
                 onChange={v => setLinha(l.k, { cor_id: v })} onCriar={criarCor} />
               <label style={{ width: 110 }}>Caixas<input type="number" min="1" value={l.caixas} onChange={e => setLinha(l.k, { caixas: e.target.value })} /></label>
               {f.linhas.length > 1 && <button type="button" className="btn sm" onClick={() => setF(x => ({ ...x, linhas: x.linhas.filter(y => y.k !== l.k) }))}>Remover</button>}

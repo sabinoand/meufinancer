@@ -9,7 +9,7 @@ const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate(
 const hojeIso = () => iso(new Date());
 const parse = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const fmtData = (s) => s ? s.split("-").reverse().join("/") : "";
-const corTxt = (c) => c ? `Cor ${c.numero}${c.nome ? " – " + c.nome : ""}` : "—";
+const corTxt = (c) => c ? `Tecido ${c.numero}${c.nome ? " – " + c.nome : ""}` : "—";
 
 // cor do evento: aberto=amarelo, parcial=azul, atrasado=vermelho, entregue=verde, cancelado=cinza
 function visual(p) {

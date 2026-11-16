@@ -3,7 +3,7 @@ import QRCode from "qrcode";
 import { Printer, Star, Search, LayoutGrid, AlignJustify, List, Table2, X, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 
-const corTxt = (c) => c ? `Cor ${c.numero}${c.nome ? " – " + c.nome : ""}` : "—";
+const corTxt = (c) => c ? `Tecido ${c.numero}${c.nome ? " – " + c.nome : ""}` : "—";
 const fmtData = (s) => s ? s.split("-").reverse().join("/") : "";
 const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
@@ -71,6 +71,7 @@ export default function Estoque({ perfil }) {
   const [fSit, setFSit] = useState("");
   const [soComEstoque, setSoComEstoque] = useState(false);
   const [sel, setSel] = useState(null);
+  const [grupo, setGrupo] = useState(null); // "empresa|cadeira" aberto
   const [modo, setModo] = useState(null);
   const vazio = { cadeira_id: "", cor_id: "", caixas: "", item_id: "", obs: "", etiquetas: true };
   const [f, setF] = useState(vazio);
@@ -139,11 +140,31 @@ export default function Estoque({ perfil }) {
     if (soComEstoque && l.estoque <= 0) return false;
     return true;
   });
-  const kEstoque = linhas.reduce((a, l) => a + Math.max(0, l.estoque), 0);
-  const kPedidas = linhas.reduce((a, l) => a + l.faltaEnviar, 0);
-  const kFalta = linhas.reduce((a, l) => a + Math.max(0, -l.dif), 0);
-  const kSobra = linhas.reduce((a, l) => a + Math.max(0, l.dif), 0);
+  const base = grupo ? linhas.filter(l => chaveG(l) === grupo) : linhas;
+  const kEstoque = base.reduce((a, l) => a + Math.max(0, l.estoque), 0);
+  const kPedidas = base.reduce((a, l) => a + l.faltaEnviar, 0);
+  const kFalta = base.reduce((a, l) => a + Math.max(0, -l.dif), 0);
+  const kSobra = base.reduce((a, l) => a + Math.max(0, l.dif), 0);
   const selLinha = sel && linhas.find(l => l.key === sel);
+  const chaveG = (l) => `${l.empresa_id}|${l.cadeira_id}`;
+  const grupos = useMemo(() => {
+    const m = new Map();
+    linhas.forEach(l => {
+      const k = chaveG(l);
+      if (!m.has(k)) m.set(k, { key: k, empresa_id: l.empresa_id, cadeira_id: l.cadeira_id, estoque: 0, faltaEnviar: 0, falta: 0, sobra: 0, n: 0 });
+      const g = m.get(k);
+      g.estoque += l.estoque; g.faltaEnviar += l.faltaEnviar; g.n += 1;
+      g.falta += Math.max(0, -l.dif); g.sobra += Math.max(0, l.dif);
+    });
+    return [...m.values()].map(g => ({ ...g, dif: g.falta > 0 ? -g.falta : g.sobra, sit: g.falta > 0 ? "falta" : g.sobra > 0 ? "sobra" : "ok" }));
+  }, [linhas]);
+  const visKeys = new Set(vis.map(chaveG));
+  const gAberto = grupo && grupos.find(g => g.key === grupo);
+  const nomeCadeiraAberta = grupo ? cad(grupo.split("|")[1]) : "";
+  const cards = !grupo
+    ? grupos.filter(g => visKeys.has(g.key)).sort((a, b) => cad(a.cadeira_id).localeCompare(cad(b.cadeira_id)))
+        .map(g => ({ ...g, titulo: cad(g.cadeira_id), sub: `${g.n} tecido${g.n > 1 ? "s" : ""}${admin ? " · " + emp(g.empresa_id) : ""}`, abrir: () => setGrupo(g.key) }))
+    : vis.filter(l => chaveG(l) === grupo).map(l => ({ ...l, titulo: cor(l.cor_id), sub: admin ? emp(l.empresa_id) : "", abrir: () => setSel(l.key) }));
 
   const textoSit = (l) => l.sit === "falta" ? `Faltam ${-l.dif} cx` : l.sit === "sobra" ? `Sobram ${l.dif} cx` : "Em dia";
   const Pill = ({ l }) => <span className={"pill " + l.sit}>{textoSit(l)}</span>;
@@ -207,16 +228,16 @@ export default function Estoque({ perfil }) {
       {aba === "estoque" && (
         <>
           <div className="kpis">
-            <div className="kpi"><small>Tipos de item</small><b>{linhas.length}</b></div>
+            <div className="kpi"><small>{grupo ? "Tecidos" : "Cadeiras"}</small><b>{grupo ? base.length : grupos.length}</b></div>
             <div className="kpi"><small>Caixas em estoque</small><b>{kEstoque}</b></div>
             <div className="kpi"><small>Caixas ainda a entregar (pedidos)</small><b>{kPedidas}</b></div>
             <div className={"kpi " + (kFalta > 0 ? "bad" : "good")}><small>{kFalta > 0 ? "Faltando para concluir" : "Estoque cobre os pedidos"}</small><b>{kFalta > 0 ? kFalta : `+${kSobra}`}</b></div>
           </div>
 
           <div className="bar">
-            <div className="busca"><Search size={15} color="#6b7385" /><input placeholder="Buscar cadeira ou cor..." value={busca} onChange={e => setBusca(e.target.value)} /></div>
-            <select value={fCad} onChange={e => setFCad(e.target.value)}><option value="">Todas as cadeiras</option>{cadeiras.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
-            <select value={fCor} onChange={e => setFCor(e.target.value)}><option value="">Todas as cores</option>{cores.map(c => <option key={c.id} value={c.id}>{corTxt(c)}</option>)}</select>
+            <div className="busca"><Search size={15} color="#6b7385" /><input placeholder="Buscar cadeira ou tecido..." value={busca} onChange={e => setBusca(e.target.value)} /></div>
+            {!grupo && <select value={fCad} onChange={e => setFCad(e.target.value)}><option value="">Todas as cadeiras</option>{cadeiras.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>}
+            <select value={fCor} onChange={e => setFCor(e.target.value)}><option value="">Todos os tecidos</option>{cores.map(c => <option key={c.id} value={c.id}>{corTxt(c)}</option>)}</select>
             <select value={fSit} onChange={e => setFSit(e.target.value)}>
               <option value="">Todas as situações</option><option value="falta">Faltando</option><option value="sobra">Sobrando</option><option value="ok">Em dia</option>
             </select>
@@ -232,18 +253,25 @@ export default function Estoque({ perfil }) {
             </div>
             <div style={{ flex: 1 }} />
             {!admin && <>
-              <button className="btn" onClick={() => abrirForm("entrada")}><ArrowDownToLine size={14} /> Entrada</button>
-              <button className="btn primary" onClick={() => abrirForm("saida")}><ArrowUpFromLine size={14} /> Saída</button>
+              <button className="btn" onClick={() => abrirForm("entrada", grupo ? { cadeira_id: grupo.split("|")[1] } : undefined)}><ArrowDownToLine size={14} /> Entrada</button>
+              <button className="btn primary" onClick={() => abrirForm("saida", grupo ? { cadeira_id: grupo.split("|")[1] } : undefined)}><ArrowUpFromLine size={14} /> Saída</button>
             </>}
           </div>
 
-          {!vis.length && <p className="muted">Nenhum item. {!admin && "Registre uma entrada quando as caixas ficarem prontas, ou lance um pedido pela Cel."}</p>}
+          {grupo && (
+            <div className="row" style={{ marginBottom: 10 }}>
+              <button className="btn sm" onClick={() => setGrupo(null)}>← Todas as cadeiras</button>
+              <strong style={{ fontSize: 16 }}>{nomeCadeiraAberta}</strong>
+              <span className="muted">— estoque por tecido</span>
+            </div>
+          )}
+          {!cards.length && <p className="muted">Nenhum item. {!admin && "Registre uma entrada quando as caixas ficarem prontas, ou lance um pedido pela Cel."}</p>}
 
           {visao === "grade" && (
             <div className="gridcards">
-              {vis.map(l => (
-                <div key={l.key} className="icard" onClick={() => setSel(l.key)}>
-                  {nomeLinha(l)}
+              {cards.map(l => (
+                <div key={l.key} className="icard" onClick={l.abrir}>
+                  <strong>{l.titulo}</strong>{l.sub && <div className="muted">{l.sub}</div>}
                   <div style={{ fontSize: 26, fontWeight: 700, margin: "6px 0" }}>{l.estoque} <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>cx</span></div>
                   <Pill l={l} />
                 </div>
@@ -252,9 +280,9 @@ export default function Estoque({ perfil }) {
           )}
           {visao === "compacta" && (
             <table><tbody>
-              {vis.map(l => (
-                <tr key={l.key} className="rowclick" onClick={() => setSel(l.key)}>
-                  <td>{cad(l.cadeira_id)} · {cor(l.cor_id)}{admin && <span className="muted"> · {emp(l.empresa_id)}</span>}</td>
+              {cards.map(l => (
+                <tr key={l.key} className="rowclick" onClick={l.abrir}>
+                  <td>{l.titulo}{l.sub && <span className="muted"> · {l.sub}</span>}</td>
                   <td style={{ textAlign: "right" }}><strong>{l.estoque} cx</strong></td><td style={{ textAlign: "right" }}><Pill l={l} /></td>
                 </tr>
               ))}
@@ -262,11 +290,11 @@ export default function Estoque({ perfil }) {
           )}
           {visao === "linhas" && (
             <div style={{ display: "grid", gap: 8 }}>
-              {vis.map(l => {
+              {cards.map(l => {
                 const alvo = Math.max(l.faltaEnviar, 1);
                 return (
-                  <div key={l.key} className="icard" onClick={() => setSel(l.key)}>
-                    <div className="row" style={{ justifyContent: "space-between" }}>{nomeLinha(l)}<Pill l={l} /></div>
+                  <div key={l.key} className="icard" onClick={l.abrir}>
+                    <div className="row" style={{ justifyContent: "space-between" }}><div><strong>{l.titulo}</strong>{l.sub && <div className="muted">{l.sub}</div>}</div><Pill l={l} /></div>
                     <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>{l.estoque} cx em estoque · {l.faltaEnviar} cx a entregar</div>
                     <div className="prog"><i style={{ width: `${Math.min(100, Math.max(0, l.estoque) / alvo * 100)}%`, background: l.sit === "falta" ? "#ef4444" : "#16a34a" }} /></div>
                   </div>
@@ -277,11 +305,11 @@ export default function Estoque({ perfil }) {
           {visao === "detalhada" && (
             <div style={{ overflowX: "auto" }}>
               <table>
-                <thead><tr><th>Cadeira</th><th>Cor</th>{admin && <th>Empresa</th>}<th style={{ textAlign: "right" }}>Em estoque</th><th style={{ textAlign: "right" }}>Pedidas (a entregar)</th><th style={{ textAlign: "right" }}>Diferença</th><th>Situação</th></tr></thead>
+                <thead><tr><th>{grupo ? "Tecido" : "Cadeira"}</th><th style={{ textAlign: "right" }}>Em estoque</th><th style={{ textAlign: "right" }}>Pedidas (a entregar)</th><th style={{ textAlign: "right" }}>Diferença</th><th>Situação</th></tr></thead>
                 <tbody>
-                  {vis.map(l => (
-                    <tr key={l.key} className="rowclick" onClick={() => setSel(l.key)}>
-                      <td><strong>{cad(l.cadeira_id)}</strong></td><td>{cor(l.cor_id)}</td>{admin && <td>{emp(l.empresa_id)}</td>}
+                  {cards.map(l => (
+                    <tr key={l.key} className="rowclick" onClick={l.abrir}>
+                      <td><strong>{l.titulo}</strong>{l.sub && <div className="muted">{l.sub}</div>}</td>
                       <td style={{ textAlign: "right" }}><strong>{l.estoque}</strong></td>
                       <td style={{ textAlign: "right" }}>{l.faltaEnviar}</td>
                       <td style={{ textAlign: "right" }}>{l.dif > 0 ? "+" : ""}{l.dif}</td>
@@ -372,7 +400,7 @@ export default function Estoque({ perfil }) {
               <option value="">— escolha —</option>{cadeiras.filter(c => c.ativo).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
           </label>
-          <label>Cor
+          <label>Tecido
             <select value={f.cor_id} onChange={e => setF({ ...f, cor_id: e.target.value, item_id: "" })}>
               <option value="">— escolha —</option>{cores.filter(c => c.ativo).map(c => <option key={c.id} value={c.id}>{corTxt(c)}</option>)}
             </select>
