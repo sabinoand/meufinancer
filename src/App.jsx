@@ -3,9 +3,11 @@ import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList } from 
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const NOVIDADES = [
   "Novo: aba Pedidos — a Cel Móveis lança o pedido e escolhe a terceirizada",
+  "Cada pedido tem vários itens: cadeira + cor (número) + quantidade de caixas",
+  "Dá para cadastrar nova cadeira e nova cor na hora de lançar o pedido",
   "Cada terceirizada vê somente os seus pedidos",
   "Em breve: calendário de entregas, QR code e ranking"
 ];
@@ -245,38 +247,106 @@ const STATUS = { aberto: "Em aberto", parcial: "Recebido parcial", entregue: "En
 const fmtData = (d) => d ? d.split("-").reverse().join("/") : "";
 const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
+const corTxt = (c) => c ? `Cor ${c.numero}${c.nome ? " – " + c.nome : ""}` : "—";
+
+/* Seletor com cadastro rápido: escolhe da lista ou clica em "+" para criar na hora */
+function SeletorNovo({ label, valor, opcoes, onChange, onCriar, campos }) {
+  const [novo, setNovo] = useState(false);
+  const [v, setV] = useState({});
+  const [msg, setMsg] = useState("");
+  async function criar() {
+    const r = await onCriar(v);
+    if (r?.erro) return setMsg(r.erro);
+    setNovo(false); setV({}); setMsg("");
+  }
+  return (
+    <label style={{ flex: 1, minWidth: 150 }}>{label}
+      {!novo ? (
+        <span className="row" style={{ flexWrap: "nowrap" }}>
+          <select style={{ flex: 1, minWidth: 0 }} value={valor} onChange={e => onChange(e.target.value)}>
+            <option value="">— escolha —</option>
+            {opcoes.map(o => <option key={o.id} value={o.id}>{o.texto}</option>)}
+          </select>
+          <button type="button" className="btn sm" title="Cadastrar novo" onClick={() => setNovo(true)}>+</button>
+        </span>
+      ) : (
+        <span style={{ display: "grid", gap: 6 }}>
+          {campos.map(c => <input key={c.k} placeholder={c.ph} value={v[c.k] || ""} onChange={e => setV({ ...v, [c.k]: e.target.value })} />)}
+          <span className="row">
+            <button type="button" className="btn sm primary" onClick={criar}>Salvar</button>
+            <button type="button" className="btn sm" onClick={() => { setNovo(false); setMsg(""); }}>Cancelar</button>
+          </span>
+          {msg && <span className="err">{msg}</span>}
+        </span>
+      )}
+    </label>
+  );
+}
+
 function Pedidos({ perfil }) {
   const podeLancar = perfil.papel === "admin" || perfil.papel === "cel";
-  const [lista, setLista] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
+  const [itens, setItens] = useState([]);
   const [empresas, setEmpresas] = useState([]);
+  const [cadeiras, setCadeiras] = useState([]);
+  const [cores, setCores] = useState([]);
   const [filtro, setFiltro] = useState("");
   const [erro, setErro] = useState("");
-  const vazio = { empresa_id: "", produto: "", quantidade: "", data_entrega: "", observacao: "" };
+  const novaLinha = () => ({ k: Math.random(), cadeira_id: "", cor_id: "", caixas: "" });
+  const vazio = { empresa_id: "", data_entrega: "", observacao: "", linhas: [novaLinha()] };
   const [f, setF] = useState(vazio);
   const [aberto, setAberto] = useState(false);
 
   const carregar = useCallback(async () => {
-    const [p, e] = await Promise.all([
+    const [p, i, e, c, co] = await Promise.all([
       supabase.from("pedidos").select("*").order("data_entrega").order("numero"),
-      supabase.from("empresas").select("id,nome").eq("tipo", "terceirizada").eq("ativo", true).order("nome")
+      supabase.from("pedido_itens").select("*").order("created_at"),
+      supabase.from("empresas").select("id,nome").eq("tipo", "terceirizada").order("nome"),
+      supabase.from("cadeiras").select("*").order("nome"),
+      supabase.from("cores").select("*").order("numero")
     ]);
-    if (p.error || e.error) return setErro((p.error || e.error).message);
-    setLista(p.data); setEmpresas(e.data);
+    const er = [p, i, e, c, co].find(r => r.error);
+    if (er) return setErro(er.error.message);
+    setPedidos(p.data); setItens(i.data); setEmpresas(e.data); setCadeiras(c.data); setCores(co.data);
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
   const nomeEmpresa = (id) => empresas.find(e => e.id === id)?.nome || "—";
+  const nomeCadeira = (id) => cadeiras.find(c => c.id === id)?.nome || "—";
+
+  async function criarCadeira({ nome }) {
+    if (!nome?.trim()) return { erro: "Digite o nome da cadeira." };
+    const { data, error } = await supabase.from("cadeiras").insert({ nome: nome.trim() }).select().single();
+    if (error) return { erro: /duplicate|unique/i.test(error.message) ? "Essa cadeira já existe." : error.message };
+    setCadeiras(l => [...l, data].sort((a, b) => a.nome.localeCompare(b.nome)));
+    return {};
+  }
+  async function criarCor({ numero, nome }) {
+    if (!numero?.trim()) return { erro: "Digite o número da cor." };
+    const { data, error } = await supabase.from("cores").insert({ numero: numero.trim(), nome: nome?.trim() || null }).select().single();
+    if (error) return { erro: /duplicate|unique/i.test(error.message) ? "Esse número de cor já existe." : error.message };
+    setCores(l => [...l, data].sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true })));
+    return {};
+  }
+  const setLinha = (k, patch) => setF(x => ({ ...x, linhas: x.linhas.map(l => l.k === k ? { ...l, ...patch } : l) }));
 
   async function salvar(e) {
     e.preventDefault();
-    const qtd = parseInt(f.quantidade, 10);
-    if (!f.empresa_id || !f.produto.trim() || !qtd || qtd < 1 || !f.data_entrega) return setErro("Preencha terceirizada, produto, quantidade e data de entrega.");
-    const { error } = await supabase.from("pedidos").insert({
-      empresa_id: f.empresa_id, produto: f.produto.trim(), quantidade: qtd,
-      data_entrega: f.data_entrega, observacao: f.observacao.trim() || null
-    });
+    const linhas = f.linhas.map(l => ({ ...l, n: parseInt(l.caixas, 10) }));
+    if (!f.empresa_id || !f.data_entrega) return setErro("Escolha a terceirizada e a data de entrega.");
+    if (linhas.some(l => !l.cadeira_id || !l.cor_id || !l.n || l.n < 1)) return setErro("Em cada item, escolha a cadeira, a cor e a quantidade de caixas.");
+    const { data: ped, error } = await supabase.from("pedidos").insert({
+      empresa_id: f.empresa_id, data_entrega: f.data_entrega, observacao: f.observacao.trim() || null
+    }).select().single();
     if (error) return setErro(error.message);
-    setErro(""); setF(vazio); setAberto(false); carregar();
+    const { error: e2 } = await supabase.from("pedido_itens").insert(
+      linhas.map(l => ({ pedido_id: ped.id, cadeira_id: l.cadeira_id, cor_id: l.cor_id, caixas: l.n }))
+    );
+    if (e2) {
+      await supabase.from("pedidos").delete().eq("id", ped.id); // não deixa pedido sem itens
+      return setErro(e2.message);
+    }
+    setErro(""); setF({ ...vazio, linhas: [novaLinha()] }); setAberto(false); carregar();
   }
   async function cancelar(p) {
     if (!confirm(`Cancelar o pedido #${p.numero}?`)) return;
@@ -289,8 +359,10 @@ function Pedidos({ perfil }) {
     if (error) setErro(error.message); else carregar();
   }
 
-  const visiveis = lista.filter(p => !filtro || p.status === filtro);
+  const visiveis = pedidos.filter(p => !filtro || p.status === filtro);
   const atrasado = (p) => (p.status === "aberto" || p.status === "parcial") && p.data_entrega < hoje();
+  const opCad = cadeiras.filter(c => c.ativo).map(c => ({ id: c.id, texto: c.nome }));
+  const opCor = cores.filter(c => c.ativo).map(c => ({ id: c.id, texto: corTxt(c) }));
 
   return (
     <div className="card">
@@ -307,17 +379,29 @@ function Pedidos({ perfil }) {
 
       {aberto && podeLancar && (
         <form onSubmit={salvar} className="card" style={{ background: "#f8f9fc", marginBottom: 14, display: "grid", gap: 10 }}>
-          <label>Terceirizada
-            <select value={f.empresa_id} onChange={e => setF({ ...f, empresa_id: e.target.value })}>
-              <option value="">— escolha —</option>
-              {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-            </select>
-          </label>
-          <label>Produto<input value={f.produto} onChange={e => setF({ ...f, produto: e.target.value })} placeholder="Ex.: Assento cadeira modelo X" /></label>
           <div className="row">
-            <label style={{ flex: 1 }}>Quantidade<input type="number" min="1" value={f.quantidade} onChange={e => setF({ ...f, quantidade: e.target.value })} /></label>
-            <label style={{ flex: 1 }}>Data de entrega<input type="date" value={f.data_entrega} onChange={e => setF({ ...f, data_entrega: e.target.value })} /></label>
+            <label style={{ flex: 1, minWidth: 150 }}>Terceirizada
+              <select value={f.empresa_id} onChange={e => setF({ ...f, empresa_id: e.target.value })}>
+                <option value="">— escolha —</option>
+                {empresas.filter(e => e.ativo !== false).map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+              </select>
+            </label>
+            <label style={{ flex: 1, minWidth: 150 }}>Data de entrega<input type="date" value={f.data_entrega} onChange={e => setF({ ...f, data_entrega: e.target.value })} /></label>
           </div>
+
+          <strong>Itens do pedido</strong>
+          {f.linhas.map((l, idx) => (
+            <div key={l.k} className="row" style={{ alignItems: "flex-end", padding: 10, background: "#fff", borderRadius: 10 }}>
+              <SeletorNovo label="Cadeira" valor={l.cadeira_id} opcoes={opCad} campos={[{ k: "nome", ph: "Nome da cadeira" }]}
+                onChange={v => setLinha(l.k, { cadeira_id: v })} onCriar={criarCadeira} />
+              <SeletorNovo label="Cor (número)" valor={l.cor_id} opcoes={opCor} campos={[{ k: "numero", ph: "Número da cor" }, { k: "nome", ph: "Nome da cor (opcional)" }]}
+                onChange={v => setLinha(l.k, { cor_id: v })} onCriar={criarCor} />
+              <label style={{ width: 110 }}>Caixas<input type="number" min="1" value={l.caixas} onChange={e => setLinha(l.k, { caixas: e.target.value })} /></label>
+              {f.linhas.length > 1 && <button type="button" className="btn sm" onClick={() => setF(x => ({ ...x, linhas: x.linhas.filter(y => y.k !== l.k) }))}>Remover</button>}
+            </div>
+          ))}
+          <div><button type="button" className="btn sm" onClick={() => setF(x => ({ ...x, linhas: [...x.linhas, novaLinha()] }))}>+ Adicionar outro item</button></div>
+
           <label>Observação (opcional)<input value={f.observacao} onChange={e => setF({ ...f, observacao: e.target.value })} /></label>
           <button className="btn primary">Enviar pedido</button>
         </form>
@@ -325,28 +409,33 @@ function Pedidos({ perfil }) {
 
       {erro && <div className="err" style={{ marginBottom: 10 }}>{erro}</div>}
       {!visiveis.length && <p className="muted">Nenhum pedido{podeLancar ? " ainda. Clique em “+ Novo pedido”." : "."}</p>}
-      <div style={{ overflowX: "auto" }}>
-        {!!visiveis.length && (
-          <table>
-            <thead><tr><th>Nº</th>{podeLancar && <th>Terceirizada</th>}<th>Produto</th><th>Qtd</th><th>Entrega</th><th>Status</th>{podeLancar && <th></th>}</tr></thead>
-            <tbody>
-              {visiveis.map(p => (
-                <tr key={p.id}>
-                  <td>#{p.numero}</td>
-                  {podeLancar && <td>{nomeEmpresa(p.empresa_id)}</td>}
-                  <td>{p.produto}{p.observacao && <div className="muted">{p.observacao}</div>}</td>
-                  <td>{p.qtd_recebida}/{p.quantidade}</td>
-                  <td>{fmtData(p.data_entrega)}{atrasado(p) && <> <span className="badge off">Atrasado</span></>}</td>
-                  <td><span className={"badge " + (p.status === "entregue" ? "ok" : p.status === "cancelado" ? "off" : "")}>{STATUS[p.status]}</span></td>
-                  {podeLancar && <td className="row">
-                    {p.status !== "cancelado" && p.status !== "entregue" && <button className="btn sm" onClick={() => cancelar(p)}>Cancelar</button>}
-                    <button className="btn sm" onClick={() => excluir(p)}>Excluir</button>
-                  </td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <div style={{ display: "grid", gap: 10 }}>
+        {visiveis.map(p => {
+          const its = itens.filter(i => i.pedido_id === p.id);
+          const total = its.reduce((a, i) => a + i.caixas, 0);
+          const rec = its.reduce((a, i) => a + i.caixas_recebidas, 0);
+          return (
+            <div key={p.id} className="card" style={{ border: "1px solid #eceef3", boxShadow: "none" }}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <strong>Pedido #{p.numero}{podeLancar && ` — ${nomeEmpresa(p.empresa_id)}`}</strong>
+                <span className={"badge " + (p.status === "entregue" ? "ok" : p.status === "cancelado" ? "off" : "")}>{STATUS[p.status]}</span>
+              </div>
+              <div className="muted">Entrega: {fmtData(p.data_entrega)} {atrasado(p) && <span className="badge off">Atrasado</span>} · {rec}/{total} caixas recebidas</div>
+              <table style={{ marginTop: 8 }}><tbody>
+                {its.map(i => (
+                  <tr key={i.id}><td>{nomeCadeira(i.cadeira_id)}</td><td>{corTxt(cores.find(c => c.id === i.cor_id))}</td><td>{i.caixas} cx</td></tr>
+                ))}
+              </tbody></table>
+              {p.observacao && <div className="muted" style={{ marginTop: 6 }}>Obs.: {p.observacao}</div>}
+              {podeLancar && (
+                <div className="row" style={{ marginTop: 8 }}>
+                  {p.status !== "cancelado" && p.status !== "entregue" && <button className="btn sm" onClick={() => cancelar(p)}>Cancelar</button>}
+                  <button className="btn sm" onClick={() => excluir(p)}>Excluir</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
