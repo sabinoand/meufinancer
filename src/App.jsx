@@ -1,13 +1,16 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
 import Estoque from "./Estoque.jsx";
 import MateriaPrima from "./MateriaPrima.jsx";
+import Requisicoes from "./Requisicoes.jsx";
 
-const VERSION = "0.9.1";
+const VERSION = "0.10.0";
 const NOVIDADES = [
+  "Novo: aba Requisições (só terceirizadas) — lance as requisições da Cel, separadas por mês, com o total que está devendo",
+  "Ao lançar, escolha item por item o que vai para o estoque de matéria-prima",
   "Matéria-prima agora tem grupos (ex.: Tecido, Espuma). Itens podem ficar sem grupo",
   "Novo: Matéria-prima — cadastre itens com unidade de medida e valor, e controle entradas e saídas",
   "Aviso quando um item fica abaixo do estoque mínimo",
@@ -111,6 +114,7 @@ function Shell({ perfil, onPerfil }) {
   itens.push({ id: "pedidos", nome: "Pedidos", icon: ClipboardList });
   itens.push({ id: "calendario", nome: "Calendário", icon: CalendarDays });
   if (perfil.papel === "fornecedor" || admin) { itens.push({ id: "estoque", nome: "Estoque", icon: Package }); itens.push({ id: "materia", nome: "Matéria-prima", icon: Layers }); }
+  if (perfil.papel === "fornecedor") itens.push({ id: "requisicoes", nome: "Requisições", icon: FileText });
   if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
 
   return (
@@ -131,6 +135,7 @@ function Shell({ perfil, onPerfil }) {
         {aba === "calendario" && <Calendario perfil={perfil} />}
         {aba === "estoque" && <Estoque perfil={perfil} />}
         {aba === "materia" && <MateriaPrima perfil={perfil} />}
+        {aba === "requisicoes" && perfil.papel === "fornecedor" && <Requisicoes perfil={perfil} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
       </main>
