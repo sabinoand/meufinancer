@@ -57,7 +57,7 @@ export default function Publica({ token }) {
               <div className="info">
                 <strong style={{ fontSize: 18 }}>{info.empresa}</strong><br />
                 {info.cadeira} · {info.cor}<br />
-                <span className="m">Pedido #{info.pedido} · {new Date(info.fabricada_em).toLocaleDateString("pt-BR")}</span>
+                <span className="m">{info.pedido ? `Pedido #${info.pedido} · ` : ""}{new Date(info.fabricada_em).toLocaleDateString("pt-BR")}</span>
               </div>
               {(info.avaliada || enviado) ? (
                 <div className="ok">{enviado ? "Obrigado pela sua avaliação!" : `Este produto já foi avaliado (${info.nota} de 5).`}</div>
