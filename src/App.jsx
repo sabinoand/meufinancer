@@ -1,10 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
+import Calendario from "./Calendario.jsx";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 const NOVIDADES = [
+  "Novo: Calendário de entregas — clique no dia para ver os pedidos",
+  "Registre a chegada de cada item e a quantidade de caixas; se vier faltando, o pedido continua em aberto",
   "Novo: aba Pedidos — a Cel Móveis lança o pedido e escolhe a terceirizada",
   "Cada pedido tem vários itens: cadeira + cor (número) + quantidade de caixas",
   "Dá para cadastrar nova cadeira e nova cor na hora de lançar o pedido",
@@ -94,6 +97,7 @@ function Shell({ perfil, onPerfil }) {
 
   const itens = [{ id: "inicio", nome: "Início", icon: Home }];
   itens.push({ id: "pedidos", nome: "Pedidos", icon: ClipboardList });
+  itens.push({ id: "calendario", nome: "Calendário", icon: CalendarDays });
   if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
 
   return (
@@ -111,6 +115,7 @@ function Shell({ perfil, onPerfil }) {
       <main className="main">
         {aba === "inicio" && <Inicio perfil={perfil} />}
         {aba === "pedidos" && <Pedidos perfil={perfil} />}
+        {aba === "calendario" && <Calendario perfil={perfil} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
       </main>
