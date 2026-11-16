@@ -1,14 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const NOVIDADES = [
-  "Login por usuário e senha",
-  "Cadastro de empresas (Cel Móveis e terceirizadas)",
-  "Administrador libera usuários e define a empresa de cada um",
-  "Em breve: pedidos, calendário de entregas, QR code e ranking"
+  "Novo: aba Pedidos — a Cel Móveis lança o pedido e escolhe a terceirizada",
+  "Cada terceirizada vê somente os seus pedidos",
+  "Em breve: calendário de entregas, QR code e ranking"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada" };
 
@@ -92,6 +91,7 @@ function Shell({ perfil, onPerfil }) {
   }
 
   const itens = [{ id: "inicio", nome: "Início", icon: Home }];
+  itens.push({ id: "pedidos", nome: "Pedidos", icon: ClipboardList });
   if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
 
   return (
@@ -108,6 +108,7 @@ function Shell({ perfil, onPerfil }) {
       </nav>
       <main className="main">
         {aba === "inicio" && <Inicio perfil={perfil} />}
+        {aba === "pedidos" && <Pedidos perfil={perfil} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
       </main>
@@ -235,6 +236,117 @@ function Usuarios({ meuId }) {
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+const STATUS = { aberto: "Em aberto", parcial: "Recebido parcial", entregue: "Entregue", cancelado: "Cancelado" };
+const fmtData = (d) => d ? d.split("-").reverse().join("/") : "";
+const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+function Pedidos({ perfil }) {
+  const podeLancar = perfil.papel === "admin" || perfil.papel === "cel";
+  const [lista, setLista] = useState([]);
+  const [empresas, setEmpresas] = useState([]);
+  const [filtro, setFiltro] = useState("");
+  const [erro, setErro] = useState("");
+  const vazio = { empresa_id: "", produto: "", quantidade: "", data_entrega: "", observacao: "" };
+  const [f, setF] = useState(vazio);
+  const [aberto, setAberto] = useState(false);
+
+  const carregar = useCallback(async () => {
+    const [p, e] = await Promise.all([
+      supabase.from("pedidos").select("*").order("data_entrega").order("numero"),
+      supabase.from("empresas").select("id,nome").eq("tipo", "terceirizada").eq("ativo", true).order("nome")
+    ]);
+    if (p.error || e.error) return setErro((p.error || e.error).message);
+    setLista(p.data); setEmpresas(e.data);
+  }, []);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const nomeEmpresa = (id) => empresas.find(e => e.id === id)?.nome || "—";
+
+  async function salvar(e) {
+    e.preventDefault();
+    const qtd = parseInt(f.quantidade, 10);
+    if (!f.empresa_id || !f.produto.trim() || !qtd || qtd < 1 || !f.data_entrega) return setErro("Preencha terceirizada, produto, quantidade e data de entrega.");
+    const { error } = await supabase.from("pedidos").insert({
+      empresa_id: f.empresa_id, produto: f.produto.trim(), quantidade: qtd,
+      data_entrega: f.data_entrega, observacao: f.observacao.trim() || null
+    });
+    if (error) return setErro(error.message);
+    setErro(""); setF(vazio); setAberto(false); carregar();
+  }
+  async function cancelar(p) {
+    if (!confirm(`Cancelar o pedido #${p.numero}?`)) return;
+    const { error } = await supabase.from("pedidos").update({ status: "cancelado" }).eq("id", p.id);
+    if (error) setErro(error.message); else carregar();
+  }
+  async function excluir(p) {
+    if (!confirm(`Excluir o pedido #${p.numero}? Não dá para desfazer.`)) return;
+    const { error } = await supabase.from("pedidos").delete().eq("id", p.id);
+    if (error) setErro(error.message); else carregar();
+  }
+
+  const visiveis = lista.filter(p => !filtro || p.status === filtro);
+  const atrasado = (p) => (p.status === "aberto" || p.status === "parcial") && p.data_entrega < hoje();
+
+  return (
+    <div className="card">
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+        <h2 style={{ margin: 0 }}>Pedidos</h2>
+        <div className="row">
+          <select value={filtro} onChange={e => setFiltro(e.target.value)}>
+            <option value="">Todos</option>
+            {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          {podeLancar && <button className="btn primary" onClick={() => setAberto(!aberto)}>+ Novo pedido</button>}
+        </div>
+      </div>
+
+      {aberto && podeLancar && (
+        <form onSubmit={salvar} className="card" style={{ background: "#f8f9fc", marginBottom: 14, display: "grid", gap: 10 }}>
+          <label>Terceirizada
+            <select value={f.empresa_id} onChange={e => setF({ ...f, empresa_id: e.target.value })}>
+              <option value="">— escolha —</option>
+              {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+            </select>
+          </label>
+          <label>Produto<input value={f.produto} onChange={e => setF({ ...f, produto: e.target.value })} placeholder="Ex.: Assento cadeira modelo X" /></label>
+          <div className="row">
+            <label style={{ flex: 1 }}>Quantidade<input type="number" min="1" value={f.quantidade} onChange={e => setF({ ...f, quantidade: e.target.value })} /></label>
+            <label style={{ flex: 1 }}>Data de entrega<input type="date" value={f.data_entrega} onChange={e => setF({ ...f, data_entrega: e.target.value })} /></label>
+          </div>
+          <label>Observação (opcional)<input value={f.observacao} onChange={e => setF({ ...f, observacao: e.target.value })} /></label>
+          <button className="btn primary">Enviar pedido</button>
+        </form>
+      )}
+
+      {erro && <div className="err" style={{ marginBottom: 10 }}>{erro}</div>}
+      {!visiveis.length && <p className="muted">Nenhum pedido{podeLancar ? " ainda. Clique em “+ Novo pedido”." : "."}</p>}
+      <div style={{ overflowX: "auto" }}>
+        {!!visiveis.length && (
+          <table>
+            <thead><tr><th>Nº</th>{podeLancar && <th>Terceirizada</th>}<th>Produto</th><th>Qtd</th><th>Entrega</th><th>Status</th>{podeLancar && <th></th>}</tr></thead>
+            <tbody>
+              {visiveis.map(p => (
+                <tr key={p.id}>
+                  <td>#{p.numero}</td>
+                  {podeLancar && <td>{nomeEmpresa(p.empresa_id)}</td>}
+                  <td>{p.produto}{p.observacao && <div className="muted">{p.observacao}</div>}</td>
+                  <td>{p.qtd_recebida}/{p.quantidade}</td>
+                  <td>{fmtData(p.data_entrega)}{atrasado(p) && <> <span className="badge off">Atrasado</span></>}</td>
+                  <td><span className={"badge " + (p.status === "entregue" ? "ok" : p.status === "cancelado" ? "off" : "")}>{STATUS[p.status]}</span></td>
+                  {podeLancar && <td className="row">
+                    {p.status !== "cancelado" && p.status !== "entregue" && <button className="btn sm" onClick={() => cancelar(p)}>Cancelar</button>}
+                    <button className="btn sm" onClick={() => excluir(p)}>Excluir</button>
+                  </td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
