@@ -1,12 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
 import Estoque from "./Estoque.jsx";
+import MateriaPrima from "./MateriaPrima.jsx";
 
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 const NOVIDADES = [
+  "Novo: Matéria-prima — cadastre itens com unidade de medida e valor, e controle entradas e saídas",
+  "Aviso quando um item fica abaixo do estoque mínimo",
   "Estoque agrupado por cadeira: clique na cadeira para ver o estoque de cada tecido",
   "\"Cor\" agora se chama \"Tecido\" em todo o sistema",
   "Estoque redesenhado: busca, filtros, 4 formas de visualização e aba Histórico",
@@ -106,7 +109,7 @@ function Shell({ perfil, onPerfil }) {
   const itens = [{ id: "inicio", nome: "Início", icon: Home }];
   itens.push({ id: "pedidos", nome: "Pedidos", icon: ClipboardList });
   itens.push({ id: "calendario", nome: "Calendário", icon: CalendarDays });
-  if (perfil.papel === "fornecedor" || admin) itens.push({ id: "estoque", nome: "Estoque", icon: Package });
+  if (perfil.papel === "fornecedor" || admin) { itens.push({ id: "estoque", nome: "Estoque", icon: Package }); itens.push({ id: "materia", nome: "Matéria-prima", icon: Layers }); }
   if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
 
   return (
@@ -126,6 +129,7 @@ function Shell({ perfil, onPerfil }) {
         {aba === "pedidos" && <Pedidos perfil={perfil} />}
         {aba === "calendario" && <Calendario perfil={perfil} />}
         {aba === "estoque" && <Estoque perfil={perfil} />}
+        {aba === "materia" && <MateriaPrima perfil={perfil} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
       </main>
