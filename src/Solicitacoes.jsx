@@ -42,6 +42,7 @@ export default function Solicitacoes({ perfil, onMudou }) {
   const [sols, setSols] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [catalogo, setCatalogo] = useState([]);
+  const [gruposAl, setGruposAl] = useState([]);
   const [saldos, setSaldos] = useState([]);
   const [filtro, setFiltro] = useState("abertos");
   const [sel, setSel] = useState(null);
@@ -58,11 +59,12 @@ export default function Solicitacoes({ perfil, onMudou }) {
       supabase.from("solicitacoes").select("*, solicitacao_itens(*)").order("created_at", { ascending: false }).limit(500),
       supabase.from("empresas").select("id,nome"),
       supabase.from("almox_itens").select("*").order("nome"),
-      fornecedor ? Promise.resolve({ data: [] }) : supabase.from("almox_saldo").select("*")
+      fornecedor ? Promise.resolve({ data: [] }) : supabase.from("almox_saldo").select("*"),
+      supabase.from("almox_grupos").select("*").order("nome")
     ]);
     const er = rs.find(r => r.error);
     if (er) return setErro(er.error.message);
-    setSols(rs[0].data); setEmpresas(rs[1].data); setCatalogo(rs[2].data); setSaldos(rs[3].data);
+    setSols(rs[0].data); setEmpresas(rs[1].data); setCatalogo(rs[2].data); setSaldos(rs[3].data); setGruposAl(rs[4].data);
     onMudou && onMudou();
   }, [fornecedor, onMudou]);
   useEffect(() => { carregar(); const t = setInterval(carregar, 30000); return () => clearInterval(t); }, [carregar]);
@@ -74,7 +76,8 @@ export default function Solicitacoes({ perfil, onMudou }) {
       : filtro === "concluidas" ? s.status === "concluido" : ["recusado", "cancelado"].includes(s.status)), [sols, filtro]);
   const novas = sols.filter(s => s.status === "solicitado").length;
   const selS = sel && sols.find(s => s.id === sel);
-  const grupos = [...new Set(catalogo.filter(i => i.ativo).map(i => i.grupo || ""))].sort();
+  const nomeGr = (id) => gruposAl.find(g => g.id === id)?.nome || "";
+  const grupos = [...new Set(catalogo.filter(i => i.ativo).map(i => i.grupo_id || ""))].sort((a, b) => nomeGr(a).localeCompare(nomeGr(b)));
 
   function abrirNova() {
     setF({ tipo: "coleta", data: "", obs: "", linhas: [linhaVazia()] });
@@ -237,8 +240,8 @@ export default function Solicitacoes({ perfil, onMudou }) {
                   <select value={l.item_id} onChange={e => setLinha(l.k, { item_id: e.target.value })}>
                     <option value="">— escolha o item —</option>
                     {grupos.map(g => (
-                      <optgroup key={g || "_"} label={g || "Sem grupo"}>
-                        {catalogo.filter(i => i.ativo && (i.grupo || "") === g).map(i => <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>)}
+                      <optgroup key={g || "_"} label={nomeGr(g) || "Sem grupo"}>
+                        {catalogo.filter(i => i.ativo && (i.grupo_id || "") === g).map(i => <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>)}
                       </optgroup>
                     ))}
                   </select>

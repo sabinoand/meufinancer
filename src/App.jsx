@@ -9,7 +9,7 @@ import Requisicoes from "./Requisicoes.jsx";
 import Almoxarifado from "./Almoxarifado.jsx";
 import Solicitacoes from "./Solicitacoes.jsx";
 
-const VERSION = "0.12.1";
+const VERSION = "0.12.2";
 const NOVIDADES = [
   "Novo perfil: Almoxarife (estoque que abastece as terceirizadas)",
   "Novas abas: Almoxarifado e Solicitações",

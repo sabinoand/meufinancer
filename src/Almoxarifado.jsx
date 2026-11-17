@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Search, Plus, ArrowDownToLine, ArrowUpFromLine, Pencil } from "lucide-react";
+import { Search, Plus, ArrowDownToLine, ArrowUpFromLine, Pencil, Folder, FolderPlus } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 
 const UNIDADES = ["un", "m", "m²", "kg", "g", "L", "mL", "rolo", "pacote", "caixa", "lata", "par", "folha"];
@@ -34,7 +34,8 @@ export default function Almoxarifado({ perfil }) {
   const [saldos, setSaldos] = useState([]);
   const [movs, setMovs] = useState([]);
   const [busca, setBusca] = useState("");
-  const [fGrupo, setFGrupo] = useState("");
+  const [grupos, setGrupos] = useState([]);
+  const [grupoAberto, setGrupoAberto] = useState(null);
   const [soBaixo, setSoBaixo] = useState(false);
   const [verInativos, setVerInativos] = useState(false);
   const [modal, setModal] = useState(null);
@@ -46,11 +47,12 @@ export default function Almoxarifado({ perfil }) {
     const rs = await Promise.all([
       supabase.from("almox_itens").select("*").order("nome"),
       supabase.from("almox_saldo").select("*"),
-      supabase.from("almox_mov").select("*").order("created_at", { ascending: false }).limit(500)
+      supabase.from("almox_mov").select("*").order("created_at", { ascending: false }).limit(500),
+      supabase.from("almox_grupos").select("*").order("nome")
     ]);
     const er = rs.find(r => r.error);
     if (er) return setErro(er.error.message);
-    setItens(rs[0].data); setSaldos(rs[1].data); setMovs(rs[2].data);
+    setItens(rs[0].data); setSaldos(rs[1].data); setMovs(rs[2].data); setGrupos(rs[3].data);
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -59,23 +61,30 @@ export default function Almoxarifado({ perfil }) {
     return { ...i, saldo, baixo: i.ativo && Number(i.minimo) > 0 && saldo < Number(i.minimo) };
   }), [itens, saldos]);
   const ativos = linhas.filter(i => i.ativo);
-  const grupos = [...new Set(itens.map(i => i.grupo).filter(Boolean))].sort();
   const vis = linhas.filter(i => {
     if (!verInativos && !i.ativo) return false;
     const t = busca.trim().toLowerCase();
     if (t && !i.nome.toLowerCase().includes(t)) return false;
-    if (fGrupo === "__sem" ? !!i.grupo : fGrupo && i.grupo !== fGrupo) return false;
     if (soBaixo && !i.baixo) return false;
     return true;
   });
   const kValor = ativos.reduce((a, i) => a + i.saldo * Number(i.valor), 0);
   const kBaixo = ativos.filter(i => i.baixo).length;
   const nome = (id) => itens.find(i => i.id === id);
+  const nomeGrupo = (id) => grupos.find(g => g.id === id)?.nome || "";
+  const filtrando = !!(busca.trim() || soBaixo);
+  const grupoSel = grupoAberto && grupos.find(g => g.id === grupoAberto);
+  const resumoGrupo = (g) => {
+    const its = linhas.filter(i => i.grupo_id === g.id && i.ativo);
+    return { n: its.length, total: its.reduce((a, i) => a + i.saldo * Number(i.valor), 0), baixo: its.filter(i => i.baixo).length };
+  };
+  const itensTabela = grupoSel ? vis.filter(i => i.grupo_id === grupoSel.id) : filtrando ? vis : vis.filter(i => !i.grupo_id);
+  const gruposTabela = !grupoSel && !filtrando ? grupos : [];
 
   function abrirItem(i) {
     const un = i && !UNIDADES.includes(i.unidade) ? "__outra" : (i?.unidade || "un");
-    setF(i ? { id: i.id, nome: i.nome, un, outra: un === "__outra" ? i.unidade : "", grupo: i.grupo || "", valor: String(i.valor), minimo: String(i.minimo), ativo: i.ativo }
-           : { nome: "", un: "un", outra: "", grupo: fGrupo && fGrupo !== "__sem" ? fGrupo : "", valor: "", minimo: "", ativo: true });
+    setF(i ? { id: i.id, nome: i.nome, un, outra: un === "__outra" ? i.unidade : "", grupo: i.grupo_id || "", novoGrupo: "", valor: String(i.valor), minimo: String(i.minimo), ativo: i.ativo }
+           : { nome: "", un: "un", outra: "", grupo: grupoAberto || "", novoGrupo: "", valor: "", minimo: "", ativo: true });
     setErro(""); setModal({ tipo: "item" });
   }
   function abrirMov(tipo, i) {
@@ -89,14 +98,44 @@ export default function Almoxarifado({ perfil }) {
     const valor = f.valor === "" ? 0 : num(f.valor), minimo = f.minimo === "" ? 0 : num(f.minimo);
     if (!f.nome.trim() || !unidade) return setErro("Informe o nome e a unidade de medida.");
     if (isNaN(valor) || valor < 0 || isNaN(minimo) || minimo < 0) return setErro("Valor e mínimo devem ser números positivos.");
+    if (f.grupo === "__novo" && !f.novoGrupo.trim()) return setErro("Digite o nome do novo grupo.");
     setBusy(true);
-    const dados = { nome: f.nome.trim(), unidade, valor, minimo, grupo: f.grupo.trim() || null };
+    let grupo_id = f.grupo && f.grupo !== "__novo" ? f.grupo : null;
+    if (f.grupo === "__novo") {
+      const ja = grupos.find(g => g.nome.toLowerCase() === f.novoGrupo.trim().toLowerCase());
+      if (ja) grupo_id = ja.id;
+      else {
+        const { data: g, error: eg } = await supabase.from("almox_grupos").insert({ nome: f.novoGrupo.trim() }).select().single();
+        if (eg) { setBusy(false); return setErro(eg.message); }
+        grupo_id = g.id;
+      }
+    }
+    const dados = { nome: f.nome.trim(), unidade, valor, minimo, grupo_id };
     const { error } = f.id
       ? await supabase.from("almox_itens").update({ ...dados, ativo: f.ativo }).eq("id", f.id)
       : await supabase.from("almox_itens").insert(dados);
     setBusy(false);
     if (error) return setErro(/duplicate|unique/i.test(error.message) ? "Já existe um item com esse nome." : error.message);
     setModal(null); carregar();
+  }
+  function abrirGrupo(g) { setF({ gid: g?.id, gnome: g?.nome || "" }); setErro(""); setModal({ tipo: "grupo" }); }
+  async function salvarGrupo(e) {
+    e.preventDefault();
+    if (!f.gnome.trim()) return setErro("Informe o nome do grupo.");
+    setBusy(true);
+    const { error } = f.gid
+      ? await supabase.from("almox_grupos").update({ nome: f.gnome.trim() }).eq("id", f.gid)
+      : await supabase.from("almox_grupos").insert({ nome: f.gnome.trim() });
+    setBusy(false);
+    if (error) return setErro(/duplicate|unique/i.test(error.message) ? "Já existe um grupo com esse nome." : error.message);
+    setModal(null); carregar();
+  }
+  async function excluirGrupo() {
+    const n = linhas.filter(i => i.grupo_id === f.gid).length;
+    if (!confirm(`Excluir o grupo "${f.gnome}"? ${n ? `Os ${n} itens dele não serão apagados: ficam sem grupo.` : ""}`)) return;
+    const { error } = await supabase.from("almox_grupos").delete().eq("id", f.gid);
+    if (error) return setErro(error.message);
+    setModal(null); setGrupoAberto(null); carregar();
   }
   async function salvarMov(e) {
     e.preventDefault();
@@ -123,6 +162,7 @@ export default function Almoxarifado({ perfil }) {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div><h2 style={{ margin: 0 }}>Almoxarifado</h2><div className="muted">Itens e estoque de matéria-prima — os terceirizados solicitam a partir desta lista</div></div>
         {!admin && <div className="row">
+          <button className="btn" onClick={() => abrirGrupo(null)}><FolderPlus size={14} /> Novo grupo</button>
           <button className="btn" onClick={() => abrirMov("entrada", null)}><ArrowDownToLine size={14} /> Entrada</button>
           <button className="btn" onClick={() => abrirMov("saida", null)}><ArrowUpFromLine size={14} /> Saída</button>
           <button className="btn primary" onClick={() => abrirItem(null)}><Plus size={14} /> Novo item</button>
@@ -145,21 +185,33 @@ export default function Almoxarifado({ perfil }) {
           <label style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><input type="checkbox" checked={soBaixo} onChange={e => setSoBaixo(e.target.checked)} />Abaixo do mínimo</label>
           <label style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><input type="checkbox" checked={verInativos} onChange={e => setVerInativos(e.target.checked)} />Inativos</label>
         </div>
-        {grupos.length > 0 && (
-          <div className="chips">
-            <button className={"chip" + (!fGrupo ? " on" : "")} onClick={() => setFGrupo("")}>Todos</button>
-            {grupos.map(g => <button key={g} className={"chip" + (fGrupo === g ? " on" : "")} onClick={() => setFGrupo(g)}>{g}</button>)}
-            <button className={"chip" + (fGrupo === "__sem" ? " on" : "")} onClick={() => setFGrupo("__sem")}>Sem grupo</button>
+        {grupoSel && (
+          <div className="row" style={{ marginBottom: 10 }}>
+            <button className="btn sm" onClick={() => setGrupoAberto(null)}>← Todos os itens</button>
+            <Folder size={16} color="#d97706" /><strong style={{ fontSize: 16 }}>{grupoSel.nome}</strong>
+            {!admin && <button className="btn sm" onClick={() => abrirGrupo(grupoSel)}><Pencil size={13} /> Renomear / excluir grupo</button>}
           </div>
         )}
         <div style={{ overflowX: "auto" }}>
           <table>
-            <thead><tr><th>Item</th><th>Grupo</th><th>Em estoque</th><th className="hide-m">Valor un.</th>{!admin && <th></th>}</tr></thead>
+            <thead><tr><th>Item</th><th>Grupo</th><th>Em estoque</th><th className="hide-m">Valor un. / total</th>{!admin && <th></th>}</tr></thead>
             <tbody>
-              {vis.map(i => (
+              {gruposTabela.map(g => {
+                const r = resumoGrupo(g);
+                return (
+                  <tr key={g.id} style={{ cursor: "pointer" }} onClick={() => setGrupoAberto(g.id)}>
+                    <td><Folder size={15} color="#d97706" style={{ verticalAlign: "-2px" }} /> <b>{g.nome}</b></td>
+                    <td className="muted">{r.n} {r.n === 1 ? "item" : "itens"}</td>
+                    <td>{r.baixo ? <span className="pill falta">{r.baixo} abaixo do mínimo</span> : <span className="pill ok">OK</span>}</td>
+                    <td className="hide-m">{brl(r.total)}</td>
+                    {!admin && <td />}
+                  </tr>
+                );
+              })}
+              {itensTabela.map(i => (
                 <tr key={i.id} style={i.ativo ? undefined : { opacity: .5 }}>
                   <td><b>{i.nome}</b>{!i.ativo && <span className="badge off" style={{ marginLeft: 6 }}>inativo</span>}</td>
-                  <td className="muted">{i.grupo || "—"}</td>
+                  <td className="muted">{i.grupo_id ? <><Folder size={11} /> {nomeGrupo(i.grupo_id)}</> : "—"}</td>
                   <td>{qtd(i.saldo)} {i.unidade} {i.baixo && <span className="pill falta">abaixo do mínimo</span>}</td>
                   <td className="hide-m">{brl(i.valor)}</td>
                   {!admin && <td style={{ whiteSpace: "nowrap" }}>
@@ -169,7 +221,7 @@ export default function Almoxarifado({ perfil }) {
                   </td>}
                 </tr>
               ))}
-              {vis.length === 0 && <tr><td colSpan={5} className="muted">{itens.length ? "Nenhum item encontrado." : admin ? "Nenhum item cadastrado ainda." : "Nenhum item ainda. Clique em \"Novo item\" para começar."}</td></tr>}
+              {itensTabela.length === 0 && gruposTabela.length === 0 && <tr><td colSpan={5} className="muted">{itens.length ? "Nenhum item encontrado." : admin ? "Nenhum item cadastrado ainda." : "Nenhum item ainda. Clique em \"Novo item\" para começar."}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -197,8 +249,14 @@ export default function Almoxarifado({ perfil }) {
         <div className="modal-bg"><form onSubmit={salvarItem} className="card modal" style={{ display: "grid", gap: 10 }}>
           <h2 style={{ margin: 0 }}>{f.id ? "Editar item" : "Novo item do almoxarifado"}</h2>
           <label>Nome do item<input value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} placeholder="Ex.: Cola 18kg, Espuma D28, Grampo..." autoFocus /></label>
-          <label>Grupo (opcional)<input list="almox-grupos" value={f.grupo} onChange={e => setF({ ...f, grupo: e.target.value })} placeholder="Ex.: Tecido, Espuma, Colas" /></label>
-          <datalist id="almox-grupos">{grupos.map(g => <option key={g} value={g} />)}</datalist>
+          <label>Grupo (opcional)
+            <select value={f.grupo} onChange={e => setF({ ...f, grupo: e.target.value })}>
+              <option value="">Sem grupo</option>
+              {grupos.map(g => <option key={g.id} value={g.id}>{g.nome}</option>)}
+              <option value="__novo">+ Criar novo grupo...</option>
+            </select>
+          </label>
+          {f.grupo === "__novo" && <input placeholder="Nome do novo grupo (ex.: Tecido, Espuma)" value={f.novoGrupo} onChange={e => setF({ ...f, novoGrupo: e.target.value })} />}
           <label>Unidade de medida
             <select value={f.un} onChange={e => setF({ ...f, un: e.target.value })}>
               {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}<option value="__outra">Outra...</option>
@@ -212,6 +270,19 @@ export default function Almoxarifado({ perfil }) {
           {f.id && <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><input type="checkbox" checked={f.ativo} onChange={e => setF({ ...f, ativo: e.target.checked })} />Item ativo (aparece para as terceirizadas)</label>}
           {erro && <div className="err">{erro}</div>}
           <div className="row"><button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Salvar"}</button><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button></div>
+        </form></div>
+      )}
+
+      {modal?.tipo === "grupo" && (
+        <div className="modal-bg"><form onSubmit={salvarGrupo} className="card modal" style={{ display: "grid", gap: 10 }}>
+          <h2 style={{ margin: 0 }}>{f.gid ? "Renomear grupo" : "Novo grupo"}</h2>
+          <label>Nome do grupo<input value={f.gnome} onChange={e => setF({ ...f, gnome: e.target.value })} placeholder="Ex.: Tecido, Espuma, Ferragens" autoFocus /></label>
+          {erro && <div className="err">{erro}</div>}
+          <div className="row">
+            <button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Salvar"}</button>
+            <button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button>
+            {f.gid && <button type="button" className="btn" style={{ marginLeft: "auto", color: "#b42318" }} onClick={excluirGrupo}>Excluir grupo</button>}
+          </div>
         </form></div>
       )}
 
