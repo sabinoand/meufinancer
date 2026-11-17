@@ -30,69 +30,6 @@ const css = `
 @media print{body *{visibility:hidden}.print-area,.print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%;border:0}.no-print{display:none !important}}
 `;
 
-// ---------- desenho explodido automático ----------
-const CORES = {
-  estrutura: ["#d9a566", "#a8702f", "#8f5d24"], espuma: ["#fde68a", "#f4c63e", "#e0b02a"],
-  tecido: ["#e7dcc8", "#cdbfa8", "#b6a78e"], cola: ["#93b4d6", "#6b8fb5", "#557a9f"], outro: ["#c9cfdb", "#98a2b3", "#7d889c"]
-};
-const PADRAO = { estrutura: [450, 400, 30], espuma: [450, 400, 50], tecido: [520, 480, 3], cola: [0, 0, 0], outro: [250, 150, 25] };
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-
-function Explodida({ pecas }) {
-  if (!pecas.length) return null;
-  const S = 0.22, U = [0.866, 0.5], V = [-0.866, 0.5];
-  const cx = 360, gap = 44;
-  let y = 30; const itens = [];
-  pecas.forEach((p, i) => {
-    const t = p.tipo, [c0, l0, e0] = PADRAO[t] || PADRAO.outro;
-    const w = clamp((Number(p.comp_mm) || c0) * S, 34, 200), d = clamp((Number(p.larg_mm) || l0) * S, 24, 150);
-    const h = t === "cola" ? 34 : clamp((Number(p.esp_mm) || e0) * S * 1.6, 5, 36);
-    const ext = t === "cola" ? 20 : (w + d) * 0.5 * 0.866 * 1.0; // meia altura visual
-    const altura = t === "cola" ? 16 + h : (w + d) * 0.5 + h;
-    itens.push({ p, i, w, d, h, y, altura });
-    y += altura + gap;
-  });
-  const H = y;
-  return (
-    <svg viewBox={`-80 0 880 ${H}`} width="100%" style={{ maxWidth: 800, display: "block", margin: "0 auto" }} role="img" aria-label="Vista explodida">
-      <line x1={cx} y1={10} x2={cx} y2={H - 14} stroke="#b6bdca" strokeDasharray="4 5" />
-      {itens.map(({ p, i, w, d, h, y, altura }) => {
-        const [topo, esq, dir] = CORES[p.tipo] || CORES.outro;
-        const lado = i % 2 === 0 ? 1 : -1;
-        let forma, ancoraX, ancoraY;
-        if (p.tipo === "cola") {
-          const cy = y + 10;
-          forma = (<g><rect x={cx - 22} y={cy} width={44} height={h} fill={esq} /><ellipse cx={cx} cy={cy + h} rx={22} ry={8} fill={dir} /><ellipse cx={cx} cy={cy} rx={22} ry={8} fill={topo} stroke="#557a9f" strokeWidth=".6" /></g>);
-          ancoraX = cx + lado * 22; ancoraY = cy + h / 2;
-        } else {
-          const P0 = [cx, y], P1 = [cx + w * U[0], y + w * U[1]], P3 = [cx + d * V[0], y + d * V[1]], P2 = [P1[0] + d * V[0], P1[1] + d * V[1]];
-          const pt = (a) => a.join(",");
-          const dn = (a) => [a[0], a[1] + h];
-          forma = (<g stroke="#4a5367" strokeWidth=".6" strokeLinejoin="round">
-            <polygon points={[P3, P2, dn(P2), dn(P3)].map(pt).join(" ")} fill={esq} />
-            <polygon points={[P1, P2, dn(P2), dn(P1)].map(pt).join(" ")} fill={dir} />
-            <polygon points={[P0, P1, P2, P3].map(pt).join(" ")} fill={topo} />
-          </g>);
-          ancoraX = lado > 0 ? P1[0] : P3[0]; ancoraY = lado > 0 ? P1[1] + h / 2 : P3[1] + h / 2;
-        }
-        const lx = lado > 0 ? 560 : 160, tx = lado > 0 ? lx + 16 : lx - 16;
-        const med = [p.comp_mm, p.larg_mm, p.esp_mm].some(Boolean) ? [p.comp_mm || "–", p.larg_mm || "–", p.esp_mm || "–"].join("×") + " mm" : "";
-        return (
-          <g key={p.id}>
-            {forma}
-            <line x1={ancoraX} y1={ancoraY} x2={lx} y2={ancoraY} stroke="#6b7385" strokeWidth=".8" />
-            <circle cx={lx} cy={ancoraY} r={11} fill="#fff" stroke="#1c2330" strokeWidth="1.2" />
-            <text x={lx} y={ancoraY + 4} fontSize="12" fontWeight="700" textAnchor="middle" fill="#1c2330">{i + 1}</text>
-            <text x={tx} y={ancoraY - 2} fontSize="12" fontWeight="700" textAnchor={lado > 0 ? "start" : "end"} fill="#1c2330">{p.nome.toUpperCase()}</text>
-            <text x={tx} y={ancoraY + 12} fontSize="10.5" textAnchor={lado > 0 ? "start" : "end"} fill="#4a5367">{qtd(p.quantidade)} {p.unidade} por cadeira</text>
-            {med && <text x={tx} y={ancoraY + 25} fontSize="10.5" textAnchor={lado > 0 ? "start" : "end"} fill="#6b7385">{med}</text>}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
 export default function FichasTecnicas({ perfil }) {
   const [aba, setAba] = useState("fichas");
   const [cadeiras, setCadeiras] = useState([]);
@@ -152,20 +89,9 @@ export default function FichasTecnicas({ perfil }) {
     if (error) throw error;
     return data;
   }
-  async function salvarPorCaixa(v) {
-    const n = parseInt(v, 10);
-    if (!n || n < 1) return;
-    setErro("");
-    try {
-      if (fichaSel) { const { error } = await supabase.from("fichas").update({ por_caixa: n }).eq("id", fichaSel.id); if (error) throw error; }
-      else await garantirFicha(cadSel.id, n);
-      carregar();
-    } catch (e) { setErro(e.message); }
-  }
-
   function abrirPeca(p) {
-    setF(p ? { id: p.id, nome: p.nome, tipo: p.tipo, materia_id: p.materia_id || "", qtd: String(p.quantidade), un: p.unidade, origem: p.origem, fornecedor: p.fornecedor || "", comp: p.comp_mm ?? "", larg: p.larg_mm ?? "", esp: p.esp_mm ?? "", obs: p.observacao || "" }
-           : { nome: "", tipo: "espuma", materia_id: "", qtd: "", un: "un", origem: "externa", fornecedor: "", comp: "", larg: "", esp: "", obs: "" });
+    setF(p ? { id: p.id, nome: p.nome, tipo: p.tipo, materia_id: p.materia_id || "", qtd: String(p.quantidade), un: p.unidade, origem: p.origem, fornecedor: p.fornecedor || "", obs: p.observacao || "" }
+           : { nome: "", tipo: "espuma", materia_id: "", qtd: "", un: "un", origem: "externa", fornecedor: "", obs: "" });
     setErro(""); setModal({ tipo: "peca" });
   }
   function mudarTipo(t) { setF(x => ({ ...x, tipo: t, origem: origemPadrao(t), un: t === "tecido" ? "m" : x.un, materia_id: t === "tecido" ? "" : x.materia_id })); }
@@ -175,14 +101,13 @@ export default function FichasTecnicas({ perfil }) {
     e.preventDefault();
     const q = num(f.qtd);
     if (!f.nome.trim()) return setErro("Dê um nome para a peça.");
-    if (!q || q <= 0) return setErro("Informe a quantidade por cadeira.");
+    if (!q || q <= 0) return setErro("Informe a quantidade por caixa.");
     if (!f.un) return setErro("Informe a unidade.");
-    const dim = (v) => v === "" || v == null ? null : num(v);
-    setBusy(true);
+        setBusy(true);
     try {
       const fi = await garantirFicha(cadSel.id);
       const dados = { nome: f.nome.trim(), tipo: f.tipo, materia_id: f.tipo === "tecido" ? null : (f.materia_id || null), quantidade: q, unidade: f.un, origem: f.origem,
-        fornecedor: f.origem === "externa" ? (f.fornecedor.trim() || null) : null, comp_mm: dim(f.comp), larg_mm: dim(f.larg), esp_mm: dim(f.esp), observacao: f.obs.trim() || null };
+        fornecedor: f.origem === "externa" ? (f.fornecedor.trim() || null) : null, observacao: f.obs.trim() || null };
       const { error } = f.id
         ? await supabase.from("ficha_pecas").update(dados).eq("id", f.id)
         : await supabase.from("ficha_pecas").insert({ ...dados, ficha_id: fi.id, empresa_id: perfil.empresa_id, numero: pecas.filter(p => p.ficha_id === fi.id).length + 1 });
@@ -207,7 +132,7 @@ export default function FichasTecnicas({ perfil }) {
         const cad = cadeiras.find(c => c.id === it.cadeira_id); const fi = fichaDe(it.cadeira_id);
         const ps = fi ? pecas.filter(p => p.ficha_id === fi.id) : [];
         if (!fi || !ps.length) { semFicha.add(cad?.nome || "?"); continue; }
-        const nCad = rest * fi.por_caixa; cadeirasTot += nCad;
+        const nCad = rest; cadeirasTot += nCad;
         const cor = cores.find(c => c.id === it.cor_id);
         for (const p of ps) {
           const q = nCad * Number(p.quantidade);
@@ -221,7 +146,7 @@ export default function FichasTecnicas({ perfil }) {
             rotulo = p.materia_id ? (mat(p.materia_id)?.nome || p.nome) : p.nome; materia = p.materia_id ? mat(p.materia_id) : null;
           }
           const l = linhas.get(chave) || { chave, rotulo, numero: p.tipo === "tecido" ? cor?.numero : null, tipo: p.tipo, un: p.unidade, origem: p.origem, fornecedor: p.fornecedor, materia, necessario: 0, usos: new Set() };
-          l.necessario += q; l.usos.add(`${cad?.nome} (${nCad} cad.)`); linhas.set(chave, l);
+          l.necessario += q; l.usos.add(`${cad?.nome} (${nCad} cx)`); linhas.set(chave, l);
         }
       }
     }
@@ -273,30 +198,21 @@ export default function FichasTecnicas({ perfil }) {
           </div>
         </div>
         {erro && !modal && <div className="err no-print" style={{ marginBottom: 10 }}>{erro}</div>}
-        <div className="row no-print" style={{ marginBottom: 6 }}>
-          <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>Cadeiras por caixa
-            <input type="number" min="1" step="1" defaultValue={fichaSel?.por_caixa || 1} key={(fichaSel?.id || "n") + (fichaSel?.por_caixa || 1)} style={{ width: 80 }} onBlur={e => salvarPorCaixa(e.target.value)} />
-          </label>
-          <span className="muted">usado para converter as caixas dos pedidos em cadeiras</span>
-        </div>
-
         <div className="folha print-area">
-          <h3>FICHA TÉCNICA DE PRODUTO{empresa ? ` · ${empresa.nome.toUpperCase()}` : ""}</h3>
+          <h3>COMPOSIÇÃO DA CAIXA{empresa ? ` · ${empresa.nome.toUpperCase()}` : ""}</h3>
           <h1>{cadSel.nome}</h1>
-          <div className="muted">{fichaSel?.por_caixa || 1} {(fichaSel?.por_caixa || 1) === 1 ? "cadeira" : "cadeiras"} por caixa · {pecasSel.length} {pecasSel.length === 1 ? "peça" : "peças"}</div>
-          {pecasSel.length === 0 && <p className="muted no-print">Ainda não há peças. Clique em "Adicionar peça" (tecido, espuma do assento, espuma do encosto, estrutura, cola...).</p>}
-          <Explodida pecas={pecasSel} />
+          <div className="muted">Composição de 1 caixa · {pecasSel.length} {pecasSel.length === 1 ? "peça" : "peças"}</div>
+          {pecasSel.length === 0 && <p className="muted no-print">Ainda não há peças. Clique em "Adicionar peça" (tecido, espuma do assento, espuma do encosto, estrutura, cola...) — tudo por caixa.</p>}
           {pecasSel.length > 0 && (
             <div style={{ overflowX: "auto", marginTop: 10 }}>
               <table>
-                <thead><tr><th>Nº</th><th>Peça</th><th>Por cadeira</th><th>Medidas (mm)</th><th>Origem</th><th>Item do estoque</th><th className="no-print"></th></tr></thead>
+                <thead><tr><th>Nº</th><th>Peça</th><th>Por caixa</th><th>Origem</th><th>Item do estoque</th><th className="no-print"></th></tr></thead>
                 <tbody>
                   {pecasSel.map((p, i) => (
                     <tr key={p.id}>
                       <td>{i + 1}</td>
                       <td><b>{p.nome}</b><div className="muted">{TIPOS[p.tipo]}</div></td>
                       <td>{qtd(p.quantidade)} {p.unidade}</td>
-                      <td>{[p.comp_mm, p.larg_mm, p.esp_mm].some(Boolean) ? [p.comp_mm || "–", p.larg_mm || "–", p.esp_mm || "–"].join(" × ") : "—"}</td>
                       <td>{ORIGEM[p.origem]}{p.fornecedor && <div className="muted">{p.fornecedor}</div>}</td>
                       <td>{p.tipo === "tecido" ? <span className="muted">conforme o tecido do pedido</span> : p.materia_id ? mat(p.materia_id)?.nome : <span className="pill falta">sem vínculo</span>}</td>
                       <td className="no-print" style={{ whiteSpace: "nowrap" }}>
@@ -327,7 +243,7 @@ export default function FichasTecnicas({ perfil }) {
                   </select>
                 </label>}
             <div className="row">
-              <label style={{ flex: 1 }}>Quantidade por cadeira<input type="number" step="any" min="0" value={f.qtd} onChange={e => setF({ ...f, qtd: e.target.value })} placeholder="Ex.: 1,2" /></label>
+              <label style={{ flex: 1 }}>Quantidade por caixa<input type="number" step="any" min="0" value={f.qtd} onChange={e => setF({ ...f, qtd: e.target.value })} placeholder="Ex.: 1,2" /></label>
               <label style={{ width: 110 }}>Unidade
                 <select value={f.un} onChange={e => setF({ ...f, un: e.target.value })} disabled={!!f.materia_id}>{[...new Set([...UNID, f.un])].map(u => <option key={u} value={u}>{u}</option>)}</select>
               </label>
@@ -336,12 +252,6 @@ export default function FichasTecnicas({ perfil }) {
               <select value={f.origem} onChange={e => setF({ ...f, origem: e.target.value })}>{Object.entries(ORIGEM).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
             </label>
             {f.origem === "externa" && <label>Fornecedor (opcional — agrupa o pedido de compra)<input value={f.fornecedor} onChange={e => setF({ ...f, fornecedor: e.target.value })} placeholder="Ex.: fornecedor de espuma" /></label>}
-            <div className="muted" style={{ marginTop: 2 }}>Medidas em mm (opcional — só para o desenho e a ficha)</div>
-            <div className="row">
-              <label style={{ flex: 1 }}>Comprimento<input type="number" step="any" min="0" value={f.comp} onChange={e => setF({ ...f, comp: e.target.value })} /></label>
-              <label style={{ flex: 1 }}>Largura<input type="number" step="any" min="0" value={f.larg} onChange={e => setF({ ...f, larg: e.target.value })} /></label>
-              <label style={{ flex: 1 }}>Espessura<input type="number" step="any" min="0" value={f.esp} onChange={e => setF({ ...f, esp: e.target.value })} /></label>
-            </div>
             {erro && <div className="err">{erro}</div>}
             <div className="row"><button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Salvar"}</button><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button></div>
           </form></div>
@@ -354,7 +264,7 @@ export default function FichasTecnicas({ perfil }) {
     <div className="card">
       <style>{css}</style>
       <h2 style={{ margin: 0 }}>Fichas técnicas</h2>
-      <div className="muted">Composição de cada cadeira e cálculo do material dos pedidos</div>
+      <div className="muted">Composição de cada caixa e cálculo do material dos pedidos</div>
       <div className="subtabs" style={{ marginTop: 12 }}>
         <button className={aba === "fichas" ? "on" : ""} onClick={() => setAba("fichas")}>Fichas das cadeiras</button>
         <button className={aba === "calcular" ? "on" : ""} onClick={() => setAba("calcular")}>Calcular pedidos</button>
@@ -367,7 +277,7 @@ export default function FichasTecnicas({ perfil }) {
           const n = pecasDe(c.id).length, fi = fichaDe(c.id);
           return (
             <div key={c.id} className="cadrow" onClick={() => { setSel(c.id); setErro(""); }}>
-              <div><b>{c.nome}</b><div className="muted">{n ? `${n} ${n === 1 ? "peça" : "peças"} · ${fi.por_caixa} por caixa` : "Sem ficha ainda"}</div></div>
+              <div><b>{c.nome}</b><div className="muted">{n ? `${n} ${n === 1 ? "peça" : "peças"} na composição` : "Sem ficha ainda"}</div></div>
               <span className={"pill " + (n ? "ok" : "cinza")}>{n ? "Ficha pronta" : "Montar ficha"}</span>
             </div>
           );
@@ -391,7 +301,7 @@ export default function FichasTecnicas({ perfil }) {
         {calc.semFicha.length > 0 && <div className="err" style={{ margin: "10px 0" }}><AlertTriangle size={14} /> Sem ficha técnica (não entram no cálculo): {calc.semFicha.join(", ")}</div>}
 
         {calc.lista.length > 0 && (<>
-          <h3 style={{ margin: "16px 0 6px" }}>Material necessário — {calc.cadeirasTot} cadeiras</h3>
+          <h3 style={{ margin: "16px 0 6px" }}>Material necessário — {calc.cadeirasTot} caixas</h3>
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead><tr><th>Material</th><th>Precisa</th><th>No estoque</th><th>Falta</th><th>Origem</th></tr></thead>
