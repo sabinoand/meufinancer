@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Search, Plus, ArrowDownToLine, ArrowUpFromLine, Pencil, Folder, FolderPlus } from "lucide-react";
+import { Search, Plus, ArrowDownToLine, ArrowUpFromLine, Pencil, Folder, FolderPlus, FileText } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 
 const UNIDADES = ["un", "m", "m²", "kg", "g", "L", "mL", "rolo", "pacote", "caixa", "lata", "par", "folha"];
@@ -9,7 +9,36 @@ const fmtData = (s) => s ? s.split("-").reverse().join("/") : "";
 const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const num = (v) => parseFloat(String(v).replace(",", "."));
 
+const MAPA_UN = { UN: "un", UND: "un", UNID: "un", PC: "un", PÇ: "un", PCS: "un", KG: "kg", G: "g", GR: "g", M: "m", MT: "m", MTS: "m", M2: "m²", LT: "L", L: "L", ML: "mL", CX: "caixa", PCT: "pacote", PT: "pacote", RL: "rolo", PR: "par", FL: "folha" };
+const unXml = (u) => MAPA_UN[String(u || "").toUpperCase().trim()] || String(u || "un").toLowerCase();
+const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+const DIAS = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+const diaExtenso = (iso) => { const [a, m, d] = iso.split("-").map(Number); return `${DIAS[new Date(a, m - 1, d).getDay()]}, ${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${a}`; };
+
+function lerXml(txt) {
+  const doc = new DOMParser().parseFromString(txt, "text/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error("Arquivo XML inválido.");
+  const inf = doc.getElementsByTagName("infNFe")[0];
+  if (!inf) throw new Error("Este XML não parece ser de uma NF-e.");
+  const g = (el, tag) => el?.getElementsByTagName(tag)[0]?.textContent?.trim() || "";
+  const ide = inf.getElementsByTagName("ide")[0], emit = inf.getElementsByTagName("emit")[0];
+  const chave = (inf.getAttribute("Id") || "").replace(/^NFe/, "") || g(doc, "chNFe");
+  if (!chave) throw new Error("XML sem chave de acesso.");
+  const meta = { chave, numero: g(ide, "nNF"), emissao: (g(ide, "dhEmi") || g(ide, "dEmi")).slice(0, 10), emitente: g(emit, "xNome"), cnpj: g(emit, "CNPJ") || g(emit, "CPF"), total: parseFloat(g(inf.getElementsByTagName("ICMSTot")[0], "vNF")) || 0 };
+  const linhas = [...inf.getElementsByTagName("det")].map((det, i) => {
+    const pr = det.getElementsByTagName("prod")[0];
+    return { k: i, cprod: g(pr, "cProd"), desc: g(pr, "xProd"), un: g(pr, "uCom"), q: parseFloat(g(pr, "qCom")) || 0, vu: parseFloat(g(pr, "vUnCom")) || 0 };
+  });
+  if (!linhas.length) throw new Error("A nota não tem itens.");
+  return { meta, linhas };
+}
+
 const css = `
+.wide{max-width:680px !important;max-height:92vh;overflow-y:auto}
+.diah{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin:16px 0 6px;padding-bottom:4px;border-bottom:2px solid #e3e7f0}
+.diah b{text-transform:capitalize}
+.xl{border:1px solid #eceef3;border-radius:10px;padding:10px;display:grid;gap:8px;background:#fff}
+.xl.off{opacity:.45}
 .subtabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid #eceef3}
 .subtabs button{border:0;background:none;padding:9px 14px;cursor:pointer;font-size:14px;color:#6b7385;border-bottom:2px solid transparent}
 .subtabs button.on{color:#1d4ed8;border-color:#1d4ed8;font-weight:600}
@@ -33,6 +62,12 @@ export default function Almoxarifado({ perfil }) {
   const [itens, setItens] = useState([]);
   const [saldos, setSaldos] = useState([]);
   const [movs, setMovs] = useState([]);
+  const [vinc, setVinc] = useState([]);
+  const [xml, setXml] = useState(null);
+  const [hBusca, setHBusca] = useState("");
+  const [hTipo, setHTipo] = useState("");
+  const [hDe, setHDe] = useState("");
+  const [hAte, setHAte] = useState("");
   const [busca, setBusca] = useState("");
   const [grupos, setGrupos] = useState([]);
   const [grupoAberto, setGrupoAberto] = useState(null);
@@ -47,12 +82,13 @@ export default function Almoxarifado({ perfil }) {
     const rs = await Promise.all([
       supabase.from("almox_itens").select("*").order("nome"),
       supabase.from("almox_saldo").select("*"),
-      supabase.from("almox_mov").select("*").order("created_at", { ascending: false }).limit(500),
-      supabase.from("almox_grupos").select("*").order("nome")
+      supabase.from("almox_mov").select("*").order("created_at", { ascending: false }).limit(2000),
+      supabase.from("almox_grupos").select("*").order("nome"),
+      supabase.from("almox_xml_vinculos").select("*")
     ]);
     const er = rs.find(r => r.error);
     if (er) return setErro(er.error.message);
-    setItens(rs[0].data); setSaldos(rs[1].data); setMovs(rs[2].data); setGrupos(rs[3].data);
+    setItens(rs[0].data); setSaldos(rs[1].data); setMovs(rs[2].data); setGrupos(rs[3].data); setVinc(rs[4].data);
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -149,6 +185,56 @@ export default function Almoxarifado({ perfil }) {
     if (error) return setErro(error.message);
     setModal(null); carregar();
   }
+  async function escolherXml(e) {
+    const file = e.target.files?.[0]; if (!file) return;
+    setErro("");
+    try {
+      const { meta, linhas } = lerXml(await file.text());
+      const lns = linhas.map(l => {
+        const v = vinc.find(x => x.cnpj === meta.cnpj && x.cprod === l.cprod);
+        const porNome = itens.find(i => i.ativo && norm(i.nome) === norm(l.desc));
+        const sel = v && itens.find(i => i.id === v.item_id)?.id || porNome?.id || "__novo";
+        return { ...l, incl: true, sel, novoNome: l.desc, novoUn: unXml(l.un), novoGrupo: grupoAberto || "" };
+      });
+      setXml(x => ({ ...x, etapa: "revisao", meta, linhas: lns, arquivo: file.name }));
+    } catch (er) { setErro(er.message); }
+    e.target.value = "";
+  }
+  const setLn = (k, patch) => setXml(x => ({ ...x, linhas: x.linhas.map(l => l.k === k ? { ...l, ...patch } : l) }));
+  async function lancarXml() {
+    const sel = xml.linhas.filter(l => l.incl);
+    if (!sel.length) return setErro("Marque ao menos um item da nota.");
+    for (const l of sel) {
+      if (l.sel === "__novo" && (!l.novoNome.trim() || !l.novoUn.trim())) return setErro(`Informe nome e unidade do item novo "${l.desc}".`);
+      if (!(l.q > 0)) return setErro(`Quantidade inválida em "${l.desc}".`);
+    }
+    setBusy(true); setErro("");
+    const { error } = await supabase.rpc("almox_importar_nfe", {
+      p_chave: xml.meta.chave, p_numero: xml.meta.numero, p_emitente: xml.meta.emitente, p_cnpj: xml.meta.cnpj,
+      p_emissao: xml.meta.emissao || null, p_total: xml.meta.total, p_data: xml.data || null,
+      p_itens: sel.map(l => l.sel === "__novo"
+        ? { novo_nome: l.novoNome.trim(), novo_unidade: l.novoUn.trim(), novo_grupo: l.novoGrupo || null, quantidade: l.q, valor_unit: l.vu, cprod: l.cprod }
+        : { item_id: l.sel, quantidade: l.q, valor_unit: l.vu, cprod: l.cprod })
+    });
+    setBusy(false);
+    if (error) return setErro(error.message);
+    setModal(null); setXml(null); carregar();
+  }
+
+  const movsFiltrados = useMemo(() => movs.filter(m => {
+    if (hTipo && m.tipo !== hTipo) return false;
+    if (hDe && m.data < hDe) return false;
+    if (hAte && m.data > hAte) return false;
+    const t = hBusca.trim().toLowerCase();
+    if (t && !((itens.find(i => i.id === m.item_id)?.nome || "").toLowerCase().includes(t) || (m.observacao || "").toLowerCase().includes(t))) return false;
+    return true;
+  }), [movs, itens, hTipo, hDe, hAte, hBusca]);
+  const dias = useMemo(() => {
+    const por = new Map();
+    movsFiltrados.forEach(m => por.set(m.data, [...(por.get(m.data) || []), m]));
+    return [...por.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [movsFiltrados]);
+
   async function desfazer(m) {
     if (!confirm("Desfazer este lançamento?")) return;
     const { error } = await supabase.rpc("almox_excluir_mov", { p_id: m.id });
@@ -164,6 +250,7 @@ export default function Almoxarifado({ perfil }) {
         {!admin && <div className="row">
           <button className="btn" onClick={() => abrirGrupo(null)}><FolderPlus size={14} /> Novo grupo</button>
           <button className="btn" onClick={() => abrirMov("entrada", null)}><ArrowDownToLine size={14} /> Entrada</button>
+          <button className="btn" onClick={() => { setErro(""); setXml({ etapa: "arquivo", data: hojeIso() }); setModal({ tipo: "xml" }); }}><FileText size={14} /> Entrada por XML</button>
           <button className="btn" onClick={() => abrirMov("saida", null)}><ArrowUpFromLine size={14} /> Saída</button>
           <button className="btn primary" onClick={() => abrirItem(null)}><Plus size={14} /> Novo item</button>
         </div>}
@@ -227,23 +314,38 @@ export default function Almoxarifado({ perfil }) {
         </div>
       </>)}
 
-      {aba === "historico" && (
-        <div style={{ overflowX: "auto" }}>
-          <table>
-            <thead><tr><th>Data</th><th>Item</th><th>Tipo</th><th>Qtd</th><th className="hide-m">Observação</th>{!admin && <th></th>}</tr></thead>
-            <tbody>
-              {movs.map(m => { const it = nome(m.item_id); return (
-                <tr key={m.id}>
-                  <td>{fmtData(m.data)}</td><td>{it?.nome || "—"}</td>
-                  <td><span className={"badge " + (m.tipo === "entrada" ? "ok" : "")}>{m.tipo === "entrada" ? "Entrada" : "Saída"}</span></td>
-                  <td>{qtd(m.quantidade)} {it?.unidade}</td><td className="hide-m muted">{m.observacao}</td>
-                  {!admin && <td><button className="btn sm" onClick={() => desfazer(m)}>Desfazer</button></td>}
-                </tr>); })}
-              {movs.length === 0 && <tr><td colSpan={6} className="muted">Sem movimentações.</td></tr>}
-            </tbody>
-          </table>
+      {aba === "historico" && (<>
+        <div className="bar">
+          <div className="busca"><Search size={15} color="#6b7385" /><input placeholder="Buscar item ou observação..." value={hBusca} onChange={e => setHBusca(e.target.value)} /></div>
+          <select value={hTipo} onChange={e => setHTipo(e.target.value)}><option value="">Entradas e saídas</option><option value="entrada">Só entradas</option><option value="saida">Só saídas</option></select>
+          <label style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>de<input type="date" value={hDe} onChange={e => setHDe(e.target.value)} /></label>
+          <label style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>até<input type="date" value={hAte} onChange={e => setHAte(e.target.value)} /></label>
         </div>
-      )}
+        {dias.map(([dia, ms]) => {
+          const ent = ms.filter(m => m.tipo === "entrada").length, sai = ms.length - ent;
+          return (
+            <div key={dia}>
+              <div className="diah"><b>{diaExtenso(dia)}</b><span className="muted">{ent > 0 && `${ent} ${ent === 1 ? "entrada" : "entradas"}`}{ent > 0 && sai > 0 && " · "}{sai > 0 && `${sai} ${sai === 1 ? "saída" : "saídas"}`}</span></div>
+              <div style={{ overflowX: "auto" }}>
+                <table>
+                  <tbody>
+                    {ms.map(m => { const it = nome(m.item_id); return (
+                      <tr key={m.id}>
+                        <td style={{ width: 52 }} className="muted">{m.created_at ? new Date(m.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ""}</td>
+                        <td><b>{it?.nome || "—"}</b></td>
+                        <td><span className={"badge " + (m.tipo === "entrada" ? "ok" : "")}>{m.tipo === "entrada" ? "Entrada" : "Saída"}</span></td>
+                        <td>{m.tipo === "entrada" ? "+" : "−"}{qtd(m.quantidade)} {it?.unidade}</td>
+                        <td className="hide-m muted">{m.observacao}</td>
+                        {!admin && <td><button className="btn sm" onClick={() => desfazer(m)}>Desfazer</button></td>}
+                      </tr>); })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+        {dias.length === 0 && <p className="muted">{movs.length ? "Nada encontrado com esses filtros." : "Sem movimentações ainda."}</p>}
+      </>)}
 
       {modal?.tipo === "item" && (
         <div className="modal-bg"><form onSubmit={salvarItem} className="card modal" style={{ display: "grid", gap: 10 }}>
@@ -271,6 +373,55 @@ export default function Almoxarifado({ perfil }) {
           {erro && <div className="err">{erro}</div>}
           <div className="row"><button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Salvar"}</button><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button></div>
         </form></div>
+      )}
+
+      {modal?.tipo === "xml" && xml && (
+        <div className="modal-bg"><div className="card modal wide" style={{ display: "grid", gap: 10 }}>
+          <h2 style={{ margin: 0 }}>Entrada por XML da nota fiscal</h2>
+          {xml.etapa === "arquivo" && (<>
+            <p className="muted" style={{ margin: 0 }}>Escolha o arquivo XML da NF-e (o mesmo que vem do fornecedor). O sistema lê os itens e você confere antes de lançar no estoque.</p>
+            <input type="file" accept=".xml,text/xml,application/xml" onChange={escolherXml} />
+            {erro && <div className="err">{erro}</div>}
+            <div className="row"><button type="button" className="btn" onClick={() => { setModal(null); setXml(null); }}>Cancelar</button></div>
+          </>)}
+          {xml.etapa === "revisao" && (<>
+            <div style={{ background: "#f7f9ff", borderRadius: 10, padding: 10, fontSize: 14 }}>
+              <b>{xml.meta.emitente || "Fornecedor"}</b><br />
+              NF-e nº {xml.meta.numero}{xml.meta.emissao && ` · emitida em ${fmtData(xml.meta.emissao)}`} · total {brl(xml.meta.total)}
+            </div>
+            <label>Data da entrada no estoque<input type="date" value={xml.data} onChange={e => setXml({ ...xml, data: e.target.value })} /></label>
+            {xml.linhas.map(l => (
+              <div key={l.k} className={"xl" + (l.incl ? "" : " off")}>
+                <label style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <input type="checkbox" checked={l.incl} onChange={e => setLn(l.k, { incl: e.target.checked })} style={{ marginTop: 3 }} />
+                  <span><b>{l.desc}</b><br /><span className="muted">{qtd(l.q)} {l.un} × {brl(l.vu)} = {brl(l.q * l.vu)}{l.cprod && ` · cód. ${l.cprod}`}</span></span>
+                </label>
+                {l.incl && (<>
+                  <select value={l.sel} onChange={e => setLn(l.k, { sel: e.target.value })}>
+                    <option value="__novo">+ Cadastrar como item novo</option>
+                    {itens.filter(i => i.ativo).map(i => <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>)}
+                  </select>
+                  {l.sel === "__novo" && (
+                    <div className="row" style={{ flexWrap: "wrap" }}>
+                      <input style={{ flex: "2 1 180px" }} value={l.novoNome} onChange={e => setLn(l.k, { novoNome: e.target.value })} placeholder="Nome do item" />
+                      <input style={{ width: 80 }} value={l.novoUn} onChange={e => setLn(l.k, { novoUn: e.target.value })} placeholder="Unid." />
+                      <select style={{ flex: "1 1 130px" }} value={l.novoGrupo} onChange={e => setLn(l.k, { novoGrupo: e.target.value })}>
+                        <option value="">Sem grupo</option>{grupos.map(g => <option key={g.id} value={g.id}>{g.nome}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {l.sel !== "__novo" && itens.find(i => i.id === l.sel) && l.un && unXml(l.un) !== itens.find(i => i.id === l.sel).unidade &&
+                    <div style={{ color: "#92400e", fontSize: 12 }}>Atenção: a nota está em "{l.un}" e o item está em "{itens.find(i => i.id === l.sel).unidade}". Confira se a quantidade serve.</div>}
+                </>)}
+              </div>
+            ))}
+            {erro && <div className="err">{erro}</div>}
+            <div className="row">
+              <button className="btn primary" disabled={busy} onClick={lancarXml}>{busy ? "Lançando..." : `Lançar ${xml.linhas.filter(l => l.incl).length} ${xml.linhas.filter(l => l.incl).length === 1 ? "item" : "itens"} no estoque`}</button>
+              <button type="button" className="btn" onClick={() => { setModal(null); setXml(null); }}>Cancelar</button>
+            </div>
+          </>)}
+        </div></div>
       )}
 
       {modal?.tipo === "grupo" && (

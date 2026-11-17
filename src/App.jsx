@@ -10,11 +10,10 @@ import Almoxarifado from "./Almoxarifado.jsx";
 import Solicitacoes from "./Solicitacoes.jsx";
 import FichasTecnicas from "./FichasTecnicas.jsx";
 
-const VERSION = "0.13.1";
+const VERSION = "0.14.0";
 const NOVIDADES = [
-  "Novo: Fichas técnicas (só terceirizadas) com a composição de cada caixa",
-  "Calcule o material dos pedidos em aberto: tecido, espuma, estrutura, cola",
-  "Compara com o seu estoque e já gera a solicitação ao almoxarife e a lista de compra do que falta"
+  "Almoxarifado: entrada por XML da nota fiscal (o sistema lê os itens e você confere)",
+  "Almoxarifado: histórico agora organizado por dia, com filtros de data, item e tipo"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
