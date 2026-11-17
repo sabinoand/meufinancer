@@ -9,7 +9,7 @@ import Requisicoes from "./Requisicoes.jsx";
 import Almoxarifado from "./Almoxarifado.jsx";
 import Solicitacoes from "./Solicitacoes.jsx";
 
-const VERSION = "0.12.0";
+const VERSION = "0.12.1";
 const NOVIDADES = [
   "Novo perfil: Almoxarife (estoque que abastece as terceirizadas)",
   "Novas abas: Almoxarifado e Solicitações",
@@ -43,8 +43,8 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
 .modal{max-width:420px;width:100%;max-height:85vh;overflow-y:auto}.modal ul{padding-left:18px}
 .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center}
-@media(max-width:720px){.layout{flex-direction:column}.side{width:100%;height:auto;position:fixed;bottom:0;left:0;right:0;flex-direction:row;padding:6px;z-index:20;justify-content:space-around}
-.side .brand,.spacer{display:none}.badge-n{position:absolute;top:0;right:4px;margin:0}.nav{flex-direction:column;gap:2px;font-size:11px;padding:6px 10px}.main{padding:16px 16px 90px}
+@media(max-width:720px){.layout{flex-direction:column}.side{width:100%;height:auto;top:auto;position:fixed;bottom:0;left:0;right:0;flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom));z-index:20;justify-content:flex-start;overflow-x:auto;overflow-y:hidden;gap:2px;-webkit-overflow-scrolling:touch}.nav{flex:0 0 auto;white-space:nowrap;align-items:center;justify-content:center;min-width:64px}
+.side .brand,.spacer{display:none}.badge-n{position:absolute;top:0;right:4px;margin:0}.nav{flex-direction:column;gap:2px;font-size:11px;padding:6px 8px}.main{padding:16px 16px 100px;width:100%;max-width:100%}
 .hide-m{display:none}}
 `;
 
