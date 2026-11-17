@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, UserCheck } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, UserCheck, Search, ChevronRight } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
@@ -11,15 +11,15 @@ import Solicitacoes from "./Solicitacoes.jsx";
 import FichasTecnicas from "./FichasTecnicas.jsx";
 import Rh from "./Rh.jsx";
 
-const VERSION = "0.16.0";
+const VERSION = "0.17.0";
 const NOVIDADES = [
-  "RH: atestado, falta, férias e folga agora ficam ligados ao cartão de ponto — lançou em um, aparece no outro",
-  "RH: salário do funcionário, vales com parcelas de desconto, folha do mês estimada e 13º salário"
+  "Nova tela inicial com os módulos em blocos: toque em um para abrir, e volte pelo botão Módulos no topo",
+  "Visual renovado nas cores da marca GestCel"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
 const css = `
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;color:#1c2330}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef2fb;color:#1c2330}button,input,select{font-family:inherit}
 .muted{color:#6b7385;font-size:14px}h1{font-size:22px;margin:0 0 4px}h2{font-size:18px;margin:0 0 12px}
 .card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
@@ -30,22 +30,46 @@ input,select{padding:10px 12px;border:1px solid #d5d9e2;border-radius:8px;font-s
 .btn.primary{background:#1d4ed8;color:#fff}.btn.sm{padding:6px 10px;font-size:13px}
 .link{background:none;border:0;color:#1d4ed8;cursor:pointer;font-size:14px}
 .err{background:#fde8e8;color:#b42318;padding:8px 12px;border-radius:8px;font-size:14px}
-.layout{display:flex;min-height:100vh}
-.side{width:230px;background:#101828;color:#fff;padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh}
-.side .brand{font-weight:700;font-size:16px;padding:6px 10px 16px}
-.nav{display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;color:#c7cdd9;background:none;border:0;font-size:15px;cursor:pointer;text-align:left}
-.nav{position:relative}.nav.on{background:#1d2939;color:#fff}.spacer{flex:1}
-.badge-n{margin-left:auto;background:#ef4444;color:#fff;border-radius:99px;font-size:11px;font-weight:700;padding:1px 7px}
-.main{flex:1;padding:24px;max-width:1000px}
+.app{min-height:100vh;display:flex;flex-direction:column}
+.top{position:sticky;top:0;z-index:30;background:#071433;color:#fff;display:flex;align-items:center;gap:14px;padding:0 20px;height:58px;border-bottom:1px solid rgba(79,140,255,.35)}
+.brandbtn{display:flex;align-items:center;gap:9px;background:none;border:0;color:#fff;cursor:pointer;padding:0;font:italic 800 21px "Exo 2",system-ui,sans-serif;letter-spacing:.01em}
+.brandbtn svg{width:30px;height:30px;filter:drop-shadow(0 0 8px rgba(79,140,255,.7))}
+.crumb{display:flex;align-items:center;gap:8px;font-size:14px;color:#9fb3e8;min-width:0}
+.crumb button{background:none;border:0;color:#9fb3e8;cursor:pointer;font-size:14px;padding:4px 6px;border-radius:6px}.crumb button:hover{color:#fff;background:rgba(255,255,255,.08)}
+.crumb b{color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .grow{flex:1}
+.user{display:flex;align-items:center;gap:9px;font-size:14px}
+.avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(145deg,#4f8cff,#1747e6);display:grid;place-items:center;font-weight:700;font-size:14px}
+.sair{background:rgba(255,255,255,.08);border:0;color:#dbe6ff;border-radius:8px;padding:7px 10px;cursor:pointer;display:flex;gap:6px;align-items:center;font-size:13px}.sair:hover{background:rgba(255,255,255,.16)}
+.hero{position:relative;overflow:hidden;background:radial-gradient(1200px 380px at 85% -20%,#1d4fd8 0%,rgba(29,79,216,0) 60%),#071433;color:#fff;padding:38px 0 46px}
+.hero .arc{position:absolute;right:0;top:0;width:min(900px,100%);height:100%;pointer-events:none;opacity:.9}
+.hero-in{position:relative;max-width:1180px;margin:0 auto;padding:0 24px}
+.hero h1{font:italic 800 clamp(30px,4.6vw,48px)/1.05 "Exo 2",system-ui,sans-serif;margin:0 0 6px;color:#fff}
+.hero p{margin:0 0 20px;color:#9fb3e8;font-size:15px}
+.busca{display:flex;flex-direction:row;align-items:center;gap:8px;background:rgba(255,255,255,.09);border:1px solid rgba(159,179,232,.3);border-radius:12px;padding:0 12px;max-width:420px}
+.busca input{flex:1;background:none;border:0;color:#fff;padding:12px 0;font-size:15px;outline:none;min-width:0}.busca input::placeholder{color:#8ea2d6}
+.aviso{max-width:1180px;margin:18px auto 0;padding:0 24px;width:100%}
+.aviso>div{background:#fff7d6;color:#7a5a00;border:1px solid #f3dd8a;border-radius:12px;padding:11px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+.home{max-width:1180px;width:100%;margin:0 auto;padding:6px 24px 48px}
+.home h2{font-size:16px;font-weight:700;color:#14213d;margin:26px 0 12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:16px}
+.tile{position:relative;overflow:hidden;text-align:left;cursor:pointer;background:#fff;border:1px solid #dfe7f6;border-radius:18px;padding:18px 18px 20px;min-height:158px;display:flex;flex-direction:column;gap:14px;color:#14213d;font:inherit;transition:transform .16s,box-shadow .16s,border-color .16s}
+.tile:hover,.tile:focus-visible{transform:translateY(-3px);border-color:var(--c2);box-shadow:0 14px 28px -14px var(--c2);outline:none}
+.tile:focus-visible{outline:2px solid var(--c2);outline-offset:2px}
+.chip{width:52px;height:52px;border-radius:15px;background:linear-gradient(145deg,var(--c1),var(--c2));color:#fff;display:grid;place-items:center;box-shadow:0 8px 16px -8px var(--c2)}
+.tile .nm{font-weight:700;font-size:16.5px}.tile .ds{font-size:13px;color:#5d6b86;line-height:1.35;margin-top:2px}
+.tile svg.sp{position:absolute;right:14px;bottom:14px;width:22px;height:22px;color:var(--c1);opacity:0;transform:rotate(-25deg) scale(.6);transition:all .25s}
+.tile:hover svg.sp,.tile:focus-visible svg.sp{opacity:.9;transform:none}
+.tile .bd{position:absolute;top:14px;right:14px;background:#ef4444;color:#fff;border-radius:99px;font-size:12px;font-weight:700;padding:2px 8px}
+.main{flex:1;width:100%;padding:24px;max-width:1100px;margin:0 auto}
 table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #eceef3;font-size:14px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .badge{font-size:12px;padding:2px 8px;border-radius:99px;background:#e8ebf2}.badge.ok{background:#d9f5e3;color:#0b6b32}.badge.off{background:#fde8e8;color:#b42318}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
 .modal{max-width:420px;width:100%;max-height:85vh;overflow-y:auto}.modal ul{padding-left:18px}
 .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center}
-@media(max-width:720px){.layout{flex-direction:column}.side{width:100%;height:auto;top:auto;position:fixed;bottom:0;left:0;right:0;flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom));z-index:20;justify-content:flex-start;overflow-x:auto;overflow-y:hidden;gap:2px;-webkit-overflow-scrolling:touch}.nav{flex:0 0 auto;white-space:nowrap;align-items:center;justify-content:center;min-width:64px}
-.side .brand,.spacer{display:none}.badge-n{position:absolute;top:0;right:4px;margin:0}.nav{flex-direction:column;gap:2px;font-size:11px;padding:6px 8px}.main{padding:16px 16px 100px;width:100%;max-width:100%}
-.hide-m{display:none}}
+@media(max-width:640px){.top{padding:0 12px;gap:8px}.user .nome{display:none}.hero{padding:26px 0 32px}.hero-in{padding:0 16px}.home{padding:2px 16px 40px}.aviso{padding:0 16px}.main{padding:16px}.tiles{grid-template-columns:repeat(2,1fr);gap:12px}.tile{padding:14px;min-height:140px}.tile .ds{display:none}.chip{width:46px;height:46px}.hide-m{display:none}}
+@media(prefers-reduced-motion:reduce){.tile,.tile svg.sp{transition:none}.tile:hover{transform:none}}
 `;
 
 export default function App() {
@@ -109,33 +133,28 @@ function Shell({ perfil, onPerfil }) {
   }, [almox, perfil.papel]);
   useEffect(() => { atualizarNovas(); const t = setInterval(atualizarNovas, 30000); return () => clearInterval(t); }, [atualizarNovas]);
 
-  const itens = [{ id: "inicio", nome: "Início", icon: Home }];
-  if (!almox) {
-    itens.push({ id: "pedidos", nome: "Pedidos", icon: ClipboardList });
-    itens.push({ id: "calendario", nome: "Calendário", icon: CalendarDays });
-  }
-  if (perfil.papel === "fornecedor" || admin) { itens.push({ id: "estoque", nome: "Estoque", icon: Package }); itens.push({ id: "materia", nome: "Matéria-prima", icon: Layers }); }
-  if (perfil.papel === "fornecedor") itens.push({ id: "requisicoes", nome: "Requisições", icon: FileText });
-  if (perfil.papel === "fornecedor") itens.push({ id: "fichas", nome: "Fichas técnicas", icon: Ruler });
-  if (perfil.papel === "fornecedor") itens.push({ id: "rh", nome: "RH", icon: UserCheck });
-  if (almox || admin) itens.push({ id: "almoxarifado", nome: "Almoxarifado", icon: Warehouse });
-  if (perfil.papel === "fornecedor" || almox || admin) itens.push({ id: "solicitacoes", nome: "Solicitações", icon: PackagePlus, badge: novas });
-  if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
+  const itens = [];
+  const add = (id, nome, desc, icon, g, badge) => itens.push({ id, nome, desc, icon, g, badge });
+  if (!almox) { add("pedidos", "Pedidos", "Pedidos de cadeiras e prazos de entrega", ClipboardList, "ped"); add("calendario", "Calendário", "Entregas organizadas por data", CalendarDays, "ped"); }
+  if (perfil.papel === "fornecedor" || admin) { add("estoque", "Estoque", "Produtos prontos e movimentações", Package, "mat"); add("materia", "Matéria-prima", "Tecidos, espumas e insumos", Layers, "mat"); }
+  if (perfil.papel === "fornecedor") { add("requisicoes", "Requisições", "Pedidos de material", FileText, "mat"); add("fichas", "Fichas técnicas", "Composição de cada caixa e cálculo do pedido", Ruler, "mat"); }
+  if (almox || admin) add("almoxarifado", "Almoxarifado", "Itens, entradas, saídas e notas fiscais", Warehouse, "mat");
+  if (perfil.papel === "fornecedor" || almox || admin) add("solicitacoes", "Solicitações", "Coletas e entregas de material", PackagePlus, "mat", novas);
+  if (perfil.papel === "fornecedor") add("rh", "RH", "Equipe, ponto, EPI, vales e 13º", UserCheck, "pes");
+  if (admin) { add("empresas", "Empresas", "Terceirizadas cadastradas", Building2, "adm"); add("usuarios", "Usuários", "Acessos e permissões", Users, "adm"); }
+  const atual = itens.find(i => i.id === aba);
 
   return (
-    <div className="layout">
-      <nav className="side">
-        <div className="brand">GestCel<div style={{fontWeight:400,fontSize:12,color:"#98a2b3"}}>Gestão de Parceiros</div></div>
-        {itens.map(i => (
-          <button key={i.id} className={"nav" + (aba === i.id ? " on" : "")} onClick={() => setAba(i.id)}>
-            <i.icon size={18} />{i.nome}{i.badge > 0 && <span className="badge-n">{i.badge}</span>}
-          </button>
-        ))}
-        <div className="spacer" />
-        <button className="nav" onClick={() => supabase.auth.signOut()}><LogOut size={18} />Sair</button>
-      </nav>
-      <main className="main">
-        {aba === "inicio" && <Inicio perfil={perfil} novas={novas} irPara={setAba} />}
+    <div className="app">
+      <header className="top">
+        <button className="brandbtn" onClick={() => setAba("inicio")} aria-label="GestCel — voltar aos módulos"><Estrela />GestCel</button>
+        {atual && <div className="crumb"><button onClick={() => setAba("inicio")}>Módulos</button><ChevronRight size={14} /><b>{atual.nome}</b></div>}
+        <div className="grow" />
+        <div className="user"><div className="avatar">{(perfil.nome || "?").trim()[0].toUpperCase()}</div><span className="nome">{perfil.nome}</span></div>
+        <button className="sair" onClick={() => supabase.auth.signOut()}><LogOut size={15} />Sair</button>
+      </header>
+      {aba === "inicio" && <Inicio perfil={perfil} novas={novas} itens={itens} irPara={setAba} />}
+      {aba !== "inicio" && <main className="main">
         {aba === "pedidos" && !almox && <Pedidos perfil={perfil} />}
         {aba === "calendario" && !almox && <Calendario perfil={perfil} />}
         {aba === "estoque" && <Estoque perfil={perfil} />}
@@ -147,7 +166,7 @@ function Shell({ perfil, onPerfil }) {
         {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
-      </main>
+      </main>}
       {novidades && (
         <div className="modal-bg"><div className="card modal">
           <h2>Novidades (v{VERSION})</h2>
@@ -159,18 +178,66 @@ function Shell({ perfil, onPerfil }) {
   );
 }
 
-function Inicio({ perfil, novas, irPara }) {
+const GRUPOS = {
+  ped: { nome: "Pedidos e entregas", c1: "#4f8cff", c2: "#1747e6" },
+  mat: { nome: "Material e estoque", c1: "#2dd4ee", c2: "#0e7fb5" },
+  pes: { nome: "Pessoas", c1: "#a78bfa", c2: "#6d3fe0" },
+  adm: { nome: "Administração", c1: "#94a3b8", c2: "#475569" }
+};
+const STAR_PTS = "16.00,3.00 19.70,11.90 29.31,12.67 21.99,18.95 24.23,28.33 16.00,23.30 7.77,28.33 10.01,18.95 2.69,12.67 12.30,11.90";
+function Estrela() {
   return (
-    <div className="card">
-      {perfil.papel === "almoxarife" && novas > 0 && (
-        <div style={{ background: "#fef3c7", color: "#92400e", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Bell size={16} /> {novas === 1 ? "1 solicitação nova aguardando confirmação." : `${novas} solicitações novas aguardando confirmação.`}
-          <button className="btn sm" onClick={() => irPara("solicitacoes")}>Ver agora</button>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="gst" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7fb0ff" /><stop offset="1" stopColor="#1747e6" /></linearGradient></defs>
+      <polygon points={STAR_PTS} fill="url(#gst)" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" /></svg>
+  );
+}
+const Brilho = ({ className }) => <svg className={className} viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1l2.2 8.8L23 12l-8.8 2.2L12 23l-2.2-8.8L1 12l8.8-2.2z" fill="currentColor" /></svg>;
+
+function Inicio({ perfil, novas, itens, irPara }) {
+  const [q, setQ] = useState("");
+  const h = new Date().getHours(); const saud = h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite";
+  const primeiro = (perfil.nome || "").trim().split(/\s+/)[0];
+  const norm = (t) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const vis = itens.filter(i => !q.trim() || norm(i.nome + " " + i.desc).includes(norm(q.trim())));
+  const grupos = Object.keys(GRUPOS).filter(g => vis.some(i => i.g === g));
+  return (
+    <div>
+      <section className="hero">
+        <svg className="arc" viewBox="0 0 900 220" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="arcg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stopColor="#22c7ff" stopOpacity="0" /><stop offset=".6" stopColor="#4f8cff" stopOpacity=".9" /><stop offset="1" stopColor="#bcd6ff" /></linearGradient></defs>
+          <path d="M-40 230 C 220 60, 560 -10, 860 70" fill="none" stroke="url(#arcg)" strokeWidth="3" />
+          <path d="M-40 250 C 240 100, 580 20, 880 100" fill="none" stroke="url(#arcg)" strokeWidth="1.2" opacity=".5" />
+          <path d="M862 40 l5 17 17 5 -17 5 -5 17 -5 -17 -17 -5 17 -5z" fill="#cfe2ff" />
+        </svg>
+        <div className="hero-in">
+          <h1>{saud}, {primeiro}</h1>
+          <p>{PAPEIS[perfil.papel]} · escolha um módulo para começar</p>
+          <label className="busca"><Search size={17} color="#8ea2d6" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar módulo" aria-label="Buscar módulo" /></label>
         </div>
+      </section>
+      {novas > 0 && (perfil.papel === "almoxarife" || perfil.papel === "fornecedor") && (
+        <div className="aviso"><div><Bell size={16} />
+          {perfil.papel === "almoxarife" ? (novas === 1 ? "1 solicitação nova aguardando confirmação." : `${novas} solicitações novas aguardando confirmação.`) : (novas === 1 ? "1 pedido de material concluído para lançar no seu estoque." : `${novas} pedidos de material concluídos para lançar no seu estoque.`)}
+          <button className="btn sm" onClick={() => irPara("solicitacoes")}>Abrir Solicitações</button></div></div>
       )}
-      <h1>Olá, {perfil.nome}!</h1>
-      <p className="muted">Perfil: {PAPEIS[perfil.papel]}</p>
-      <p><Clock size={14} /> As próximas partes (pedidos, entregas, QR code, ranking e controles internos) serão adicionadas aqui.</p>
+      <div className="home">
+        {grupos.length === 0 && <p className="muted" style={{ marginTop: 24 }}>Nenhum módulo com "{q}". Tente outra palavra.</p>}
+        {grupos.map(g => (
+          <section key={g}>
+            <h2>{GRUPOS[g].nome}</h2>
+            <div className="tiles">
+              {vis.filter(i => i.g === g).map(i => (
+                <button key={i.id} className="tile" style={{ "--c1": GRUPOS[g].c1, "--c2": GRUPOS[g].c2 }} onClick={() => irPara(i.id)}>
+                  {i.badge > 0 && <span className="bd">{i.badge}</span>}
+                  <span className="chip"><i.icon size={25} strokeWidth={1.9} /></span>
+                  <span><div className="nm">{i.nome}</div><div className="ds">{i.desc}</div></span>
+                  <Brilho className="sp" />
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
