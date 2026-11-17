@@ -106,6 +106,15 @@ export default function Solicitacoes({ perfil, onMudou }) {
     setRecusando(false); setMotivo(""); carregar();
   }
 
+  async function lancarEstoque() {
+    if (!confirm("Adicionar os itens desta solicitação ao seu estoque de matéria-prima?")) return;
+    setBusy(true); setErro("");
+    const { error } = await supabase.rpc("solicitacao_para_estoque", { p_id: selS.id });
+    setBusy(false);
+    if (error) return setErro(error.message);
+    setOk("Itens lançados no seu estoque de matéria-prima."); setTimeout(() => setOk(""), 5000); carregar();
+  }
+
   const contar = (fn) => sols.filter(fn).length;
 
   return (
@@ -189,7 +198,7 @@ export default function Solicitacoes({ perfil, onMudou }) {
             <div style={{ display: "grid", gap: 8 }}>
               {selS.status === "solicitado" && <button className="btn primary" disabled={busy} onClick={() => acao("confirmar")}>Confirmar solicitação</button>}
               {selS.status === "confirmado" && <button className="btn primary" disabled={busy} onClick={() => acao("separar")}>Iniciar separação</button>}
-              {selS.status === "em_separacao" && <button className="btn primary" disabled={busy} onClick={() => acao("concluir")}>Marcar como separado e concluído</button>}
+              {selS.status === "em_separacao" && <button className="btn primary" disabled={busy} onClick={() => confirm("Concluir? Os itens serão baixados do estoque do almoxarifado.") && acao("concluir")}>Marcar como separado e concluído</button>}
               {["solicitado", "confirmado"].includes(selS.status) && !recusando && <button className="btn" onClick={() => setRecusando(true)}>Recusar</button>}
               {recusando && (
                 <div className="linha">
@@ -198,6 +207,11 @@ export default function Solicitacoes({ perfil, onMudou }) {
                 </div>
               )}
             </div>
+          )}
+          {fornecedor && selS.status === "concluido" && (
+            selS.no_estoque_em
+              ? <div className="muted">✔ Já lançada no seu estoque de matéria-prima em {fmtHora(selS.no_estoque_em)}.</div>
+              : <button className="btn primary" disabled={busy} onClick={lancarEstoque}>Lançar no meu estoque</button>
           )}
           {fornecedor && ["solicitado", "confirmado"].includes(selS.status) && (
             <button className="btn" style={{ color: "#b42318" }} disabled={busy} onClick={() => confirm("Cancelar esta solicitação?") && acao("cancelar")}>Cancelar solicitação</button>

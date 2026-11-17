@@ -9,31 +9,12 @@ import Requisicoes from "./Requisicoes.jsx";
 import Almoxarifado from "./Almoxarifado.jsx";
 import Solicitacoes from "./Solicitacoes.jsx";
 
-const VERSION = "0.11.0";
+const VERSION = "0.12.0";
 const NOVIDADES = [
-  "Novo perfil: Almoxarife, responsável pelo estoque de matéria-prima que abastece as terceirizadas",
-  "Novo: aba Almoxarifado, onde o almoxarife cadastra os itens (nome, unidade, valor, grupo) e controla entradas e saídas",
-  "Novo: aba Solicitações. A terceirizada escolhe os itens do almoxarifado e pede coleta (vai buscar) ou entrega (mandar entregar)",
-  "O almoxarife recebe aviso de solicitação nova, confirma ou recusa e marca: em separação, depois separado e concluído",
-  "Novo: aba Requisições (só terceirizadas) — lance as requisições da Cel, separadas por mês, com o total que está devendo",
-  "Ao lançar, escolha item por item o que vai para o estoque de matéria-prima",
-  "Matéria-prima agora tem grupos (ex.: Tecido, Espuma). Itens podem ficar sem grupo",
-  "Novo: Matéria-prima — cadastre itens com unidade de medida e valor, e controle entradas e saídas",
-  "Aviso quando um item fica abaixo do estoque mínimo",
-  "Estoque agrupado por cadeira: clique na cadeira para ver o estoque de cada tecido",
-  "\"Cor\" agora se chama \"Tecido\" em todo o sistema",
-  "Estoque redesenhado: busca, filtros, 4 formas de visualização e aba Histórico",
-  "Clique em um item do estoque para ver quanto tem, quanto está pedido e se sobra ou falta para concluir",
-  "Novo: Estoque de caixas prontas (entrada e saída) para a terceirizada",
-  "Ao dar saída para entrega, dá para gerar as etiquetas com QR code de cada caixa",
-  "Quem lê o QR vê qual empresa fabricou e pode dar nota ao produto",
-  "Novo: Calendário de entregas — clique no dia para ver os pedidos",
-  "Registre a chegada de cada item e a quantidade de caixas; se vier faltando, o pedido continua em aberto",
-  "Novo: aba Pedidos — a Cel Móveis lança o pedido e escolhe a terceirizada",
-  "Cada pedido tem vários itens: cadeira + tecido (número) + quantidade de caixas",
-  "Dá para cadastrar nova cadeira e novo tecido na hora de lançar o pedido",
-  "Cada terceirizada vê somente os seus pedidos",
-  "Em breve: calendário de entregas, QR code e ranking"
+  "Novo perfil: Almoxarife (estoque que abastece as terceirizadas)",
+  "Novas abas: Almoxarifado e Solicitações",
+  "Peça material por coleta ou entrega e acompanhe: confirmada, em separação, concluída",
+  "Ao concluir, o almoxarifado baixa o estoque e você lança os itens no seu estoque com um clique"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
@@ -60,7 +41,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .badge{font-size:12px;padding:2px 8px;border-radius:99px;background:#e8ebf2}.badge.ok{background:#d9f5e3;color:#0b6b32}.badge.off{background:#fde8e8;color:#b42318}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
-.modal{max-width:420px;width:100%}.modal ul{padding-left:18px}
+.modal{max-width:420px;width:100%;max-height:85vh;overflow-y:auto}.modal ul{padding-left:18px}
 .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center}
 @media(max-width:720px){.layout{flex-direction:column}.side{width:100%;height:auto;position:fixed;bottom:0;left:0;right:0;flex-direction:row;padding:6px;z-index:20;justify-content:space-around}
 .side .brand,.spacer{display:none}.badge-n{position:absolute;top:0;right:4px;margin:0}.nav{flex-direction:column;gap:2px;font-size:11px;padding:6px 10px}.main{padding:16px 16px 90px}
@@ -120,10 +101,12 @@ function Shell({ perfil, onPerfil }) {
   const almox = perfil.papel === "almoxarife";
   const [novas, setNovas] = useState(0);
   const atualizarNovas = useCallback(async () => {
-    if (!almox) return;
-    const { count } = await supabase.from("solicitacoes").select("id", { count: "exact", head: true }).eq("status", "solicitado");
+    // almoxarife: pedidos novos; terceirizada: pedidos concluídos ainda não lançados no estoque
+    if (!almox && perfil.papel !== "fornecedor") return;
+    const q = supabase.from("solicitacoes").select("id", { count: "exact", head: true }).eq("status", almox ? "solicitado" : "concluido");
+    const { count } = await (almox ? q : q.is("no_estoque_em", null));
     setNovas(count || 0);
-  }, [almox]);
+  }, [almox, perfil.papel]);
   useEffect(() => { atualizarNovas(); const t = setInterval(atualizarNovas, 30000); return () => clearInterval(t); }, [atualizarNovas]);
 
   const itens = [{ id: "inicio", nome: "Início", icon: Home }];
@@ -134,7 +117,7 @@ function Shell({ perfil, onPerfil }) {
   if (perfil.papel === "fornecedor" || admin) { itens.push({ id: "estoque", nome: "Estoque", icon: Package }); itens.push({ id: "materia", nome: "Matéria-prima", icon: Layers }); }
   if (perfil.papel === "fornecedor") itens.push({ id: "requisicoes", nome: "Requisições", icon: FileText });
   if (almox || admin) itens.push({ id: "almoxarifado", nome: "Almoxarifado", icon: Warehouse });
-  if (perfil.papel === "fornecedor" || almox || admin) itens.push({ id: "solicitacoes", nome: "Solicitações", icon: PackagePlus, badge: almox ? novas : 0 });
+  if (perfil.papel === "fornecedor" || almox || admin) itens.push({ id: "solicitacoes", nome: "Solicitações", icon: PackagePlus, badge: novas });
   if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
 
   return (
