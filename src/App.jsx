@@ -1,14 +1,20 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
 import Estoque from "./Estoque.jsx";
 import MateriaPrima from "./MateriaPrima.jsx";
 import Requisicoes from "./Requisicoes.jsx";
+import Almoxarifado from "./Almoxarifado.jsx";
+import Solicitacoes from "./Solicitacoes.jsx";
 
-const VERSION = "0.10.1";
+const VERSION = "0.11.0";
 const NOVIDADES = [
+  "Novo perfil: Almoxarife, responsável pelo estoque de matéria-prima que abastece as terceirizadas",
+  "Novo: aba Almoxarifado, onde o almoxarife cadastra os itens (nome, unidade, valor, grupo) e controla entradas e saídas",
+  "Novo: aba Solicitações. A terceirizada escolhe os itens do almoxarifado e pede coleta (vai buscar) ou entrega (mandar entregar)",
+  "O almoxarife recebe aviso de solicitação nova, confirma ou recusa e marca: em separação, depois separado e concluído",
   "Novo: aba Requisições (só terceirizadas) — lance as requisições da Cel, separadas por mês, com o total que está devendo",
   "Ao lançar, escolha item por item o que vai para o estoque de matéria-prima",
   "Matéria-prima agora tem grupos (ex.: Tecido, Espuma). Itens podem ficar sem grupo",
@@ -29,7 +35,7 @@ const NOVIDADES = [
   "Cada terceirizada vê somente os seus pedidos",
   "Em breve: calendário de entregas, QR code e ranking"
 ];
-const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada" };
+const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
 const css = `
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;color:#1c2330}
@@ -47,7 +53,8 @@ input,select{padding:10px 12px;border:1px solid #d5d9e2;border-radius:8px;font-s
 .side{width:230px;background:#101828;color:#fff;padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh}
 .side .brand{font-weight:700;font-size:16px;padding:6px 10px 16px}
 .nav{display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;color:#c7cdd9;background:none;border:0;font-size:15px;cursor:pointer;text-align:left}
-.nav.on{background:#1d2939;color:#fff}.spacer{flex:1}
+.nav{position:relative}.nav.on{background:#1d2939;color:#fff}.spacer{flex:1}
+.badge-n{margin-left:auto;background:#ef4444;color:#fff;border-radius:99px;font-size:11px;font-weight:700;padding:1px 7px}
 .main{flex:1;padding:24px;max-width:1000px}
 table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #eceef3;font-size:14px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -56,7 +63,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px
 .modal{max-width:420px;width:100%}.modal ul{padding-left:18px}
 .center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center}
 @media(max-width:720px){.layout{flex-direction:column}.side{width:100%;height:auto;position:fixed;bottom:0;left:0;right:0;flex-direction:row;padding:6px;z-index:20;justify-content:space-around}
-.side .brand,.spacer{display:none}.nav{flex-direction:column;gap:2px;font-size:11px;padding:6px 10px}.main{padding:16px 16px 90px}
+.side .brand,.spacer{display:none}.badge-n{position:absolute;top:0;right:4px;margin:0}.nav{flex-direction:column;gap:2px;font-size:11px;padding:6px 10px}.main{padding:16px 16px 90px}
 .hide-m{display:none}}
 `;
 
@@ -110,11 +117,24 @@ function Shell({ perfil, onPerfil }) {
     await supabase.rpc("marcar_versao_vista", { v: VERSION });
   }
 
+  const almox = perfil.papel === "almoxarife";
+  const [novas, setNovas] = useState(0);
+  const atualizarNovas = useCallback(async () => {
+    if (!almox) return;
+    const { count } = await supabase.from("solicitacoes").select("id", { count: "exact", head: true }).eq("status", "solicitado");
+    setNovas(count || 0);
+  }, [almox]);
+  useEffect(() => { atualizarNovas(); const t = setInterval(atualizarNovas, 30000); return () => clearInterval(t); }, [atualizarNovas]);
+
   const itens = [{ id: "inicio", nome: "Início", icon: Home }];
-  itens.push({ id: "pedidos", nome: "Pedidos", icon: ClipboardList });
-  itens.push({ id: "calendario", nome: "Calendário", icon: CalendarDays });
+  if (!almox) {
+    itens.push({ id: "pedidos", nome: "Pedidos", icon: ClipboardList });
+    itens.push({ id: "calendario", nome: "Calendário", icon: CalendarDays });
+  }
   if (perfil.papel === "fornecedor" || admin) { itens.push({ id: "estoque", nome: "Estoque", icon: Package }); itens.push({ id: "materia", nome: "Matéria-prima", icon: Layers }); }
   if (perfil.papel === "fornecedor") itens.push({ id: "requisicoes", nome: "Requisições", icon: FileText });
+  if (almox || admin) itens.push({ id: "almoxarifado", nome: "Almoxarifado", icon: Warehouse });
+  if (perfil.papel === "fornecedor" || almox || admin) itens.push({ id: "solicitacoes", nome: "Solicitações", icon: PackagePlus, badge: almox ? novas : 0 });
   if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
 
   return (
@@ -123,19 +143,21 @@ function Shell({ perfil, onPerfil }) {
         <div className="brand">GestCel<div style={{fontWeight:400,fontSize:12,color:"#98a2b3"}}>Gestão de Parceiros</div></div>
         {itens.map(i => (
           <button key={i.id} className={"nav" + (aba === i.id ? " on" : "")} onClick={() => setAba(i.id)}>
-            <i.icon size={18} />{i.nome}
+            <i.icon size={18} />{i.nome}{i.badge > 0 && <span className="badge-n">{i.badge}</span>}
           </button>
         ))}
         <div className="spacer" />
         <button className="nav" onClick={() => supabase.auth.signOut()}><LogOut size={18} />Sair</button>
       </nav>
       <main className="main">
-        {aba === "inicio" && <Inicio perfil={perfil} />}
-        {aba === "pedidos" && <Pedidos perfil={perfil} />}
-        {aba === "calendario" && <Calendario perfil={perfil} />}
+        {aba === "inicio" && <Inicio perfil={perfil} novas={novas} irPara={setAba} />}
+        {aba === "pedidos" && !almox && <Pedidos perfil={perfil} />}
+        {aba === "calendario" && !almox && <Calendario perfil={perfil} />}
         {aba === "estoque" && <Estoque perfil={perfil} />}
         {aba === "materia" && <MateriaPrima perfil={perfil} />}
         {aba === "requisicoes" && perfil.papel === "fornecedor" && <Requisicoes perfil={perfil} />}
+        {aba === "almoxarifado" && (almox || admin) && <Almoxarifado perfil={perfil} />}
+        {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
       </main>
@@ -150,9 +172,15 @@ function Shell({ perfil, onPerfil }) {
   );
 }
 
-function Inicio({ perfil }) {
+function Inicio({ perfil, novas, irPara }) {
   return (
     <div className="card">
+      {perfil.papel === "almoxarife" && novas > 0 && (
+        <div style={{ background: "#fef3c7", color: "#92400e", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Bell size={16} /> {novas === 1 ? "1 solicitação nova aguardando confirmação." : `${novas} solicitações novas aguardando confirmação.`}
+          <button className="btn sm" onClick={() => irPara("solicitacoes")}>Ver agora</button>
+        </div>
+      )}
       <h1>Olá, {perfil.nome}!</h1>
       <p className="muted">Perfil: {PAPEIS[perfil.papel]}</p>
       <p><Clock size={14} /> As próximas partes (pedidos, entregas, QR code, ranking e controles internos) serão adicionadas aqui.</p>
@@ -224,7 +252,7 @@ function Usuarios({ meuId }) {
     const novo = { ...p, ...patch };
     // empresa coerente com o papel
     if (novo.papel === "admin" || novo.papel === "pendente") novo.empresa_id = null;
-    if (novo.papel === "cel") novo.empresa_id = empresas.find(e => e.tipo === "cel")?.id || null;
+    if (novo.papel === "cel" || novo.papel === "almoxarife") novo.empresa_id = empresas.find(e => e.tipo === "cel")?.id || null;
     if (novo.papel === "fornecedor" && empresas.find(e => e.id === novo.empresa_id)?.tipo !== "terceirizada") novo.empresa_id = null;
     const { error } = await supabase.from("perfis").update({ papel: novo.papel, empresa_id: novo.empresa_id, ativo: novo.ativo }).eq("user_id", p.user_id);
     if (error) setErro(error.message); else { setErro(""); carregar(); }
@@ -255,7 +283,7 @@ function Usuarios({ meuId }) {
                           <option value="">— escolha —</option>
                           {empresas.filter(e => e.tipo === "terceirizada").map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                         </select>
-                      : p.papel === "cel" ? "Cel Móveis" : "—"}
+                      : (p.papel === "cel" || p.papel === "almoxarife") ? "Cel Móveis" : "—"}
                   </td>
                   <td><input type="checkbox" checked={p.ativo} disabled={eu} onChange={e => salvar(p, { ativo: e.target.checked })} /></td>
                 </tr>
