@@ -7,8 +7,8 @@ const OPCOES = ["normal", "falta", "falta_just", "atestado", "ferias", "folga", 
 const AUS_OC = ["falta", "falta_just", "atestado", "ferias", "folga"];
 const vazio = (r) => !r.e1 && !r.s1 && !r.e2 && !r.s2 && r.ocorrencia === "normal" && !r.observacao;
 
-export default function RhPonto({ rh }) {
-  const [aba, setAba] = useState("ind"); const [mes, setMes] = useState(hoje().slice(0, 7));
+export default function RhPonto({ rh, sub, irPara }) {
+  const aba = sub === "ponto_res" ? "res" : "ind"; const [mes, setMes] = useState(hoje().slice(0, 7));
   const ativosMes = (m) => rh.funcs.filter(f => f.admissao.slice(0, 7) <= m && (!f.demissao || f.demissao.slice(0, 7) >= m));
   const lista = ativosMes(mes);
   const [fid, setFid] = useState("");
@@ -98,12 +98,12 @@ export default function RhPonto({ rh }) {
     <div>
       <div className="row no-print" style={{ marginBottom: 10, justifyContent: "space-between" }}>
         <div className="row"><button className="btn sm" onClick={() => navMes(-1)}><ChevronLeft size={15} /></button><b style={{ minWidth: 130, textAlign: "center" }}>{MESES[mo - 1]} {y}</b><button className="btn sm" onClick={() => navMes(1)}><ChevronRight size={15} /></button></div>
-        <div className="subtabs" style={{ margin: 0 }}><button className={aba === "ind" ? "on" : ""} onClick={() => setAba("ind")}>Cartão individual</button><button className={aba === "res" ? "on" : ""} onClick={() => setAba("res")}>Resumo do mês</button></div>
+        
       </div>
       {erro && <div className="err no-print" style={{ marginBottom: 8 }}>{erro}</div>}
       {aba === "res" && <div style={{ overflowX: "auto" }}>
         <table><thead><tr><th>Funcionário</th><th>Trabalhado</th><th>Previsto</th><th>Saldo</th><th>Extras</th><th>Devidas</th><th>Faltas</th><th>Sem lançamento</th></tr></thead>
-          <tbody>{resumoTodos.map(({ f, r }) => <tr key={f.id} style={{ cursor: "pointer" }} onClick={() => { setFid(f.id); setAba("ind"); }}><td><b>{f.nome}</b></td><td>{hm(r.trab)}</td><td>{hm(r.prev)}</td><td style={{ color: r.saldo < 0 ? "#b42318" : "#166534", fontWeight: 600 }}>{hmS(r.saldo)}</td><td>{hm(r.extras)}</td><td>{hm(r.devidas)}</td><td>{r.faltas}</td><td>{r.semLanc ? <Pill cls="amar">{r.semLanc} dia(s)</Pill> : "—"}</td></tr>)}</tbody></table>
+          <tbody>{resumoTodos.map(({ f, r }) => <tr key={f.id} style={{ cursor: "pointer" }} onClick={() => { setFid(f.id); irPara("ponto"); }}><td><b>{f.nome}</b></td><td>{hm(r.trab)}</td><td>{hm(r.prev)}</td><td style={{ color: r.saldo < 0 ? "#b42318" : "#166534", fontWeight: 600 }}>{hmS(r.saldo)}</td><td>{hm(r.extras)}</td><td>{hm(r.devidas)}</td><td>{r.faltas}</td><td>{r.semLanc ? <Pill cls="amar">{r.semLanc} dia(s)</Pill> : "—"}</td></tr>)}</tbody></table>
         {lista.length === 0 && <p className="muted">Nenhum funcionário com vínculo neste mês.</p>}
         <p className="muted">Clique em um funcionário para abrir o cartão dele.</p>
       </div>}

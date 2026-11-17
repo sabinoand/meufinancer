@@ -56,9 +56,9 @@ const css = `
 @media(max-width:720px){.kpis{grid-template-columns:1fr}}
 `;
 
-export default function Almoxarifado({ perfil }) {
+export default function Almoxarifado({ perfil, secao }) {
   const admin = perfil.papel === "admin";
-  const [aba, setAba] = useState("estoque");
+  const aba = secao || "estoque";
   const [itens, setItens] = useState([]);
   const [saldos, setSaldos] = useState([]);
   const [movs, setMovs] = useState([]);
@@ -255,10 +255,7 @@ export default function Almoxarifado({ perfil }) {
           <button className="btn primary" onClick={() => abrirItem(null)}><Plus size={14} /> Novo item</button>
         </div>}
       </div>
-      <div className="subtabs" style={{ marginTop: 12 }}>
-        <button className={aba === "estoque" ? "on" : ""} onClick={() => setAba("estoque")}>Estoque</button>
-        <button className={aba === "historico" ? "on" : ""} onClick={() => setAba("historico")}>Histórico</button>
-      </div>
+      
       {erro && !modal && <div className="err" style={{ marginBottom: 10 }}>{erro}</div>}
 
       {aba === "estoque" && (<>

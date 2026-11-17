@@ -30,8 +30,8 @@ const css = `
 @media print{body *{visibility:hidden}.print-area,.print-area *{visibility:visible}.print-area{position:absolute;left:0;top:0;width:100%;border:0}.no-print{display:none !important}}
 `;
 
-export default function FichasTecnicas({ perfil }) {
-  const [aba, setAba] = useState("fichas");
+export default function FichasTecnicas({ perfil, secao }) {
+  const aba = secao || "fichas";
   const [cadeiras, setCadeiras] = useState([]);
   const [fichas, setFichas] = useState([]);
   const [pecas, setPecas] = useState([]);
@@ -265,10 +265,7 @@ export default function FichasTecnicas({ perfil }) {
       <style>{css}</style>
       <h2 style={{ margin: 0 }}>Fichas técnicas</h2>
       <div className="muted">Composição de cada caixa e cálculo do material dos pedidos</div>
-      <div className="subtabs" style={{ marginTop: 12 }}>
-        <button className={aba === "fichas" ? "on" : ""} onClick={() => setAba("fichas")}>Fichas das cadeiras</button>
-        <button className={aba === "calcular" ? "on" : ""} onClick={() => setAba("calcular")}>Calcular pedidos</button>
-      </div>
+      
       {erro && <div className="err" style={{ marginBottom: 10 }}>{erro}</div>}
       {ok && <div style={{ background: "#dcfce7", color: "#166534", padding: "8px 12px", borderRadius: 8, marginBottom: 10, fontSize: 14 }}>{ok}</div>}
 

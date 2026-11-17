@@ -53,9 +53,9 @@ function Rotulo({ e }) {
   );
 }
 
-export default function Estoque({ perfil }) {
+export default function Estoque({ perfil, secao }) {
   const admin = perfil.papel === "admin";
-  const [aba, setAba] = useState("estoque");
+  const aba = secao || "estoque";
   const [visao, setVisao] = useState("detalhada");
   const [saldos, setSaldos] = useState([]);
   const [movs, setMovs] = useState([]);
@@ -219,10 +219,7 @@ export default function Estoque({ perfil }) {
         </div>
         {!admin && <span className="muted"><Star size={14} color="#f59e0b" fill="#f59e0b" /> Nota média: <strong>{media ?? "—"}</strong>{avals.length > 0 && ` (${avals.length})`}</span>}
       </div>
-      <div className="subtabs" style={{ marginTop: 12 }}>
-        <button className={aba === "estoque" ? "on" : ""} onClick={() => setAba("estoque")}>Estoque</button>
-        <button className={aba === "historico" ? "on" : ""} onClick={() => setAba("historico")}>Histórico</button>
-      </div>
+      
       {erro && !modo && <div className="err" style={{ marginBottom: 10 }}>{erro}</div>}
 
       {aba === "estoque" && (

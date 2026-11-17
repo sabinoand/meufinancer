@@ -2,8 +2,8 @@ import { useState } from "react";
 import { supabase } from "./supabaseClient.js";
 import { Kpi, Pill, Modal, fmtData, hoje, situacao, experiencia, addDias } from "./rhLib.jsx";
 
-export default function RhExperiencia({ rh }) {
-  const [aba, setAba] = useState("pend"); const [m, setM] = useState(null); const [f, setF] = useState({}); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
+export default function RhExperiencia({ rh, sub }) {
+  const aba = sub === "exp_hist" ? "hist" : "pend"; const [m, setM] = useState(null); const [f, setF] = useState({}); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
   const pend = rh.funcs.filter(x => !x.demissao && x.exp_status === "pendente").sort((a, b) => experiencia(a).dias - experiencia(b).dias);
   const aval = rh.funcs.filter(x => x.exp_nota || x.exp_obs).sort((a, b) => b.admissao.localeCompare(a.admissao));
   const venc = pend.filter(x => experiencia(x).venc).length, perto = pend.filter(x => !experiencia(x).venc && experiencia(x).dias <= 10).length;
@@ -23,7 +23,7 @@ export default function RhExperiencia({ rh }) {
   return (
     <div>
       <div className="kpis"><Kpi t="Em experiência" v={pend.length} /><Kpi t="Terminando em 10 dias" v={perto} c={perto ? "amar" : ""} /><Kpi t="Prazo encerrado s/ avaliação" v={venc} c={venc ? "verm" : ""} /></div>
-      <div className="subtabs"><button className={aba === "pend" ? "on" : ""} onClick={() => setAba("pend")}>Em andamento</button><button className={aba === "hist" ? "on" : ""} onClick={() => setAba("hist")}>Avaliados</button></div>
+      
       <p className="muted">Contrato de experiência: 45 dias + 45 dias (total 90).</p>
       {aba === "pend" && (pend.length === 0 ? <p className="muted">Ninguém em experiência.</p> : pend.map(x => { const e = experiencia(x); return (
         <div className="item" key={x.id}>

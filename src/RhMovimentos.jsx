@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Barras, Kpi, MESES, fmtData, tempoEmpresa, TIPOS_DESLIG, pad } from "./rhLib.jsx";
 
-export default function RhMovimentos({ rh }) {
-  const [aba, setAba] = useState("turn"); const hojeD = new Date();
+export default function RhMovimentos({ rh, sub }) {
+  const aba = sub || "turn"; const hojeD = new Date();
   const [ano, setAno] = useState(hojeD.getFullYear());
   const nomeSetor = (id) => rh.setores.find(s => s.id === id)?.nome || "Sem setor";
   const ate = ano === hojeD.getFullYear() ? hojeD.getMonth() + 1 : 12;
@@ -24,7 +24,7 @@ export default function RhMovimentos({ rh }) {
   return (
     <div>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <div className="subtabs" style={{ flex: 1 }}>{[["turn", "Turnover"], ["adm", "Contratações"], ["des", "Demissões"]].map(([k, n]) => <button key={k} className={aba === k ? "on" : ""} onClick={() => setAba(k)}>{n}</button>)}</div>
+        <div style={{ flex: 1 }} />
         <select value={ano} onChange={e => setAno(Number(e.target.value))}>{anos.map(a => <option key={a}>{a}</option>)}</select>
       </div>
       <div className="kpis">

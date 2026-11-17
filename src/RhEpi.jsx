@@ -5,8 +5,8 @@ import { Kpi, Pill, Modal, fmtData, hoje, epiStatus } from "./rhLib.jsx";
 
 const ST = { venc: ["falta", "Vencido"], avenc: ["amar", "A vencer"], ok: ["ok", "Em dia"], sem: ["sem", "Sem registro"], nao: ["nao", "Não usa"] };
 
-export default function RhEpi({ rh }) {
-  const [aba, setAba] = useState("ctrl"); const [fil, setFil] = useState("todos"); const [fSel, setFSel] = useState("");
+export default function RhEpi({ rh, sub }) {
+  const aba = sub === "epi_fichas" ? "fichas" : sub === "epi_tipos" ? "tipos" : "ctrl"; const [fil, setFil] = useState("todos"); const [fSel, setFSel] = useState("");
   const [m, setM] = useState(null); const [f, setF] = useState({}); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
   const ativos = rh.funcs.filter(x => !x.demissao); const tipos = rh.epis.filter(e => e.ativo);
   const celulas = ativos.flatMap(fu => tipos.map(e => ({ fu, e, ...epiStatus(rh, fu, e) })));
@@ -30,7 +30,7 @@ export default function RhEpi({ rh }) {
   const fichaF = rh.funcs.find(x => x.id === fSel);
   return (
     <div>
-      <div className="subtabs no-print">{[["ctrl", "Controle"], ["fichas", "Fichas de entrega"], ["tipos", "Tipos de EPI"]].map(([k, n]) => <button key={k} className={aba === k ? "on" : ""} onClick={() => setAba(k)}>{n}</button>)}</div>
+      
       {aba === "ctrl" && <>
         {tipos.length === 0 ? <p className="muted">Cadastre os EPIs (luva, máscara, protetor auricular...) na aba <b>Tipos de EPI</b>, com o período de troca de cada um.</p> : <>
           <div className="kpis"><Kpi t="Vencidos" v={cnt("venc")} c={cnt("venc") ? "verm" : ""} /><Kpi t="A vencer (15 dias)" v={cnt("avenc")} c={cnt("avenc") ? "amar" : ""} /><Kpi t="Sem registro" v={cnt("sem")} /><Kpi t="Em dia" v={cnt("ok")} c="verd" /></div>

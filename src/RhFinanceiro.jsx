@@ -5,11 +5,11 @@ import { Kpi, Pill, Modal, brl, parseMoney, fmtData, hoje, hm, MESES, pad, diasD
 
 const HORA_DIV = 220;           // horas mensais (padrão CLT)
 const ADIC_EXTRA = 1.5;         // hora extra com 50%
-export default function RhFinanceiro({ rh }) {
-  const [aba, setAba] = useState("folha");
+export default function RhFinanceiro({ rh, sub }) {
+  const aba = sub === "vales" ? "vales" : sub === "dec" ? "13" : "folha";
   return (
     <div>
-      <div className="subtabs">{[["folha", "Folha do mês"], ["vales", "Vales"], ["13", "13º salário"]].map(([k, n]) => <button key={k} className={aba === k ? "on" : ""} onClick={() => setAba(k)}>{n}</button>)}</div>
+      
       {aba === "folha" && <Folha rh={rh} />}
       {aba === "vales" && <Vales rh={rh} />}
       {aba === "13" && <Decimo rh={rh} />}

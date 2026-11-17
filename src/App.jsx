@@ -10,11 +10,12 @@ import Almoxarifado from "./Almoxarifado.jsx";
 import Solicitacoes from "./Solicitacoes.jsx";
 import FichasTecnicas from "./FichasTecnicas.jsx";
 import Rh from "./Rh.jsx";
+import { SECOES } from "./secoes.js";
 
-const VERSION = "0.17.0";
+const VERSION = "0.18.0";
 const NOVIDADES = [
-  "Nova tela inicial com os módulos em blocos: toque em um para abrir, e volte pelo botão Módulos no topo",
-  "Visual renovado nas cores da marca GestCel"
+  "Cada módulo agora tem menu lateral com as suas seções (no celular, ele vira uma faixa de atalhos)",
+  "RH reorganizado em grupos: equipe, contratações, experiência, ausências, saúde, ponto e dinheiro"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
@@ -62,6 +63,17 @@ input,select{padding:10px 12px;border:1px solid #d5d9e2;border-radius:8px;font-s
 .tile:hover svg.sp,.tile:focus-visible svg.sp{opacity:.9;transform:none}
 .tile .bd{position:absolute;top:14px;right:14px;background:#ef4444;color:#fff;border-radius:99px;font-size:12px;font-weight:700;padding:2px 8px}
 .main{flex:1;width:100%;padding:24px;max-width:1100px;margin:0 auto}
+.modulo{display:flex;gap:22px;align-items:flex-start;width:100%;max-width:1320px;margin:0 auto;padding:24px}
+.conteudo{flex:1;min-width:0}
+.lateral{width:236px;flex:none;position:sticky;top:82px;background:#fff;border:1px solid #dfe7f6;border-radius:18px;padding:12px;display:flex;flex-direction:column;gap:2px;max-height:calc(100vh - 100px);overflow-y:auto}
+.lat-h{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;padding:4px 6px 12px;border-bottom:1px solid #eef1f8;margin-bottom:6px;color:#14213d}
+.chip.sm{width:34px;height:34px;border-radius:10px;box-shadow:0 6px 12px -8px var(--c2)}
+.lat-g{font-size:12.5px;font-weight:600;color:#7a869f;padding:12px 10px 4px}
+.lateral button{text-align:left;border:0;background:none;padding:9px 12px;border-radius:10px;font-size:14.5px;color:#34415c;cursor:pointer;position:relative}
+.lateral button:hover{background:#f1f5fd}
+.lateral button.on{background:#e6eeff;color:#1236b8;font-weight:600}
+.lateral button.on::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:3px;background:#1747e6}
+@media(max-width:900px){.modulo{flex-direction:column;gap:12px;padding:12px 16px 40px}.lateral{width:100%;position:static;max-height:none;flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:6px;border-radius:14px;gap:4px}.lat-h,.lat-g{display:none}.lateral button{white-space:nowrap;flex:0 0 auto}.lateral button.on::before{display:none}}
 table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #eceef3;font-size:14px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .badge{font-size:12px;padding:2px 8px;border-radius:99px;background:#e8ebf2}.badge.ok{background:#d9f5e3;color:#0b6b32}.badge.off{background:#fde8e8;color:#b42318}
@@ -143,6 +155,11 @@ function Shell({ perfil, onPerfil }) {
   if (perfil.papel === "fornecedor") add("rh", "RH", "Equipe, ponto, EPI, vales e 13º", UserCheck, "pes");
   if (admin) { add("empresas", "Empresas", "Terceirizadas cadastradas", Building2, "adm"); add("usuarios", "Usuários", "Acessos e permissões", Users, "adm"); }
   const atual = itens.find(i => i.id === aba);
+  const [secs, setSecs] = useState({});
+  const lista = SECOES[aba];
+  const chaves = (lista || []).filter(x => x.k);
+  const secAtual = chaves.some(x => x.k === secs[aba]) ? secs[aba] : chaves[0]?.k;
+  const irSecao = (k) => setSecs(o => ({ ...o, [aba]: k }));
 
   return (
     <div className="app">
@@ -154,19 +171,40 @@ function Shell({ perfil, onPerfil }) {
         <button className="sair" onClick={() => supabase.auth.signOut()}><LogOut size={15} />Sair</button>
       </header>
       {aba === "inicio" && <Inicio perfil={perfil} novas={novas} itens={itens} irPara={setAba} />}
-      {aba !== "inicio" && <main className="main">
+      {aba !== "inicio" && (lista ? (
+        <div className="modulo">
+          <nav className="lateral" aria-label={"Seções de " + atual?.nome}>
+            {atual && <div className="lat-h"><span className="chip sm" style={{ "--c1": GRUPOS[atual.g].c1, "--c2": GRUPOS[atual.g].c2 }}><atual.icon size={18} strokeWidth={1.9} /></span>{atual.nome}</div>}
+            {lista.map((x, i) => x.h ? <div key={i} className="lat-g">{x.h}</div> :
+              <button key={x.k} className={secAtual === x.k ? "on" : ""} onClick={() => irSecao(x.k)}>{x.n}</button>)}
+          </nav>
+          <main className="conteudo">
         {aba === "pedidos" && !almox && <Pedidos perfil={perfil} />}
         {aba === "calendario" && !almox && <Calendario perfil={perfil} />}
-        {aba === "estoque" && <Estoque perfil={perfil} />}
-        {aba === "materia" && <MateriaPrima perfil={perfil} />}
+        {aba === "estoque" && <Estoque perfil={perfil} secao={secAtual} />}
+        {aba === "materia" && <MateriaPrima perfil={perfil} secao={secAtual} />}
         {aba === "requisicoes" && perfil.papel === "fornecedor" && <Requisicoes perfil={perfil} />}
-        {aba === "fichas" && perfil.papel === "fornecedor" && <FichasTecnicas perfil={perfil} />}
-        {aba === "rh" && perfil.papel === "fornecedor" && <Rh perfil={perfil} />}
-        {aba === "almoxarifado" && (almox || admin) && <Almoxarifado perfil={perfil} />}
+        {aba === "fichas" && perfil.papel === "fornecedor" && <FichasTecnicas perfil={perfil} secao={secAtual} />}
+        {aba === "rh" && perfil.papel === "fornecedor" && <Rh perfil={perfil} secao={secAtual} irPara={irSecao} />}
+        {aba === "almoxarifado" && (almox || admin) && <Almoxarifado perfil={perfil} secao={secAtual} />}
         {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
-      </main>}
+          </main>
+        </div>
+      ) : <main className="main">
+        {aba === "pedidos" && !almox && <Pedidos perfil={perfil} />}
+        {aba === "calendario" && !almox && <Calendario perfil={perfil} />}
+        {aba === "estoque" && <Estoque perfil={perfil} secao={secAtual} />}
+        {aba === "materia" && <MateriaPrima perfil={perfil} secao={secAtual} />}
+        {aba === "requisicoes" && perfil.papel === "fornecedor" && <Requisicoes perfil={perfil} />}
+        {aba === "fichas" && perfil.papel === "fornecedor" && <FichasTecnicas perfil={perfil} secao={secAtual} />}
+        {aba === "rh" && perfil.papel === "fornecedor" && <Rh perfil={perfil} secao={secAtual} irPara={irSecao} />}
+        {aba === "almoxarifado" && (almox || admin) && <Almoxarifado perfil={perfil} secao={secAtual} />}
+        {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
+        {aba === "empresas" && admin && <Empresas />}
+        {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
+      </main>)}
       {novidades && (
         <div className="modal-bg"><div className="card modal">
           <h2>Novidades (v{VERSION})</h2>

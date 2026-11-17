@@ -9,29 +9,27 @@ import RhExames from "./RhExames.jsx";
 import RhEpi from "./RhEpi.jsx";
 import RhPonto from "./RhPonto.jsx";
 import RhFinanceiro from "./RhFinanceiro.jsx";
+import { tituloSecao } from "./secoes.js";
 
-const SECOES = [["visao", "Visão geral"], ["func", "Funcionários"], ["mov", "Contratações e demissões"], ["exp", "Experiência"], ["aus", "Atestados e faltas"], ["exames", "Exames"], ["epi", "EPI"], ["ponto", "Cartão de ponto"], ["fin", "Salário e vales"]];
 
-export default function Rh({ perfil }) {
+export default function Rh({ perfil, secao, irPara }) {
   const rh = useRh(perfil);
-  const [sec, setSec] = useState("visao");
+  const sec = secao || "visao";
   if (!rh.carregado) return <div className="card"><span className="muted">{rh.erro ? "" : "Carregando..."}</span>{rh.erro && <div className="err">{rh.erro}</div>}</div>;
-  const p = { rh, perfil, irPara: setSec };
+  const p = { rh, perfil, irPara };
   return (
     <div className="card">
       <Estilos />
-      <h1>RH</h1>
-      <div className="muted" style={{ marginBottom: 10 }}>Funcionários, ponto, EPI e documentos da sua equipe.</div>
-      <div className="rhnav no-print">{SECOES.map(([k, n]) => <button key={k} className={sec === k ? "on" : ""} onClick={() => setSec(k)}>{n}</button>)}</div>
+      <h1 style={{ marginBottom: 14 }}>{tituloSecao("rh", sec)}</h1>
       {sec === "visao" && <Visao {...p} />}
-      {sec === "func" && <Funcionarios {...p} />}
-      {sec === "mov" && <RhMovimentos {...p} />}
-      {sec === "exp" && <RhExperiencia {...p} />}
+      {(sec === "func" || sec === "setores") && <Funcionarios {...p} sub={sec} />}
+      {["turn", "adm", "des"].includes(sec) && <RhMovimentos {...p} sub={sec} />}
+      {(sec === "exp" || sec === "exp_hist") && <RhExperiencia {...p} sub={sec} />}
       {sec === "aus" && <RhAusencias {...p} />}
       {sec === "exames" && <RhExames {...p} />}
-      {sec === "epi" && <RhEpi {...p} />}
-      {sec === "ponto" && <RhPonto {...p} />}
-      {sec === "fin" && <RhFinanceiro {...p} />}
+      {["epi", "epi_fichas", "epi_tipos"].includes(sec) && <RhEpi {...p} sub={sec} />}
+      {(sec === "ponto" || sec === "ponto_res") && <RhPonto {...p} sub={sec} />}
+      {["folha", "vales", "dec"].includes(sec) && <RhFinanceiro {...p} sub={sec} />}
     </div>
   );
 }
@@ -74,8 +72,8 @@ function Visao({ rh, irPara }) {
   );
 }
 
-function Funcionarios({ rh, perfil }) {
-  const [aba, setAba] = useState("func");
+function Funcionarios({ rh, perfil, sub }) {
+  const aba = sub === "setores" ? "setores" : "func";
   const [busca, setBusca] = useState(""); const [fil, setFil] = useState("ativos"); const [setorF, setSetorF] = useState("");
   const [modal, setModal] = useState(false); const [f, setF] = useState({}); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
   const [novoSetor, setNovoSetor] = useState("");
@@ -135,7 +133,7 @@ function Funcionarios({ rh, perfil }) {
 
   return (
     <div>
-      <div className="subtabs"><button className={aba === "func" ? "on" : ""} onClick={() => setAba("func")}>Funcionários</button><button className={aba === "setores" ? "on" : ""} onClick={() => setAba("setores")}>Setores</button></div>
+
       {aba === "func" && <>
         <div className="row" style={{ marginBottom: 10 }}>
           <div style={{ position: "relative", flex: 1, minWidth: 180 }}><Search size={15} style={{ position: "absolute", left: 10, top: 12, color: "#9aa3b5" }} /><input style={{ width: "100%", paddingLeft: 32 }} placeholder="Buscar nome ou função" value={busca} onChange={e => setBusca(e.target.value)} /></div>
