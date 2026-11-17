@@ -12,6 +12,8 @@ export const addMeses = (s, n) => {
   const d = toDate(s); const dia = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n);
   d.setDate(Math.min(dia, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); return iso(d);
 };
+export const brl = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+export const parseMoney = (v) => { const n = parseFloat(String(v).replace(/\./g, "").replace(",", ".")); return isNaN(n) ? null : n; };
 export const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 export const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 export const minToTime = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
@@ -62,8 +64,10 @@ export function examesAtuais(rh) {
 }
 
 // ----- cartão de ponto -----
-export const OCORR = { normal: "Normal", falta: "Falta", atestado: "Atestado", ferias: "Férias", folga: "Folga", feriado: "Feriado", compensacao: "Compensação (banco)", falta_just: "Falta justificada" };
+export const OCORR = { normal: "Normal", falta: "Falta (sem justif.)", atestado: "Atestado", ferias: "Férias", folga: "Folga", feriado: "Feriado", compensacao: "Compensação (banco)", falta_just: "Falta justificada" };
 const ABONADO = ["atestado", "ferias", "folga", "feriado", "falta_just"];
+export function ausDoDia(fid, data, aus) { return aus.find(x => x.funcionario_id === fid && x.data_ini <= data && x.data_fim >= data); }
+export const ocDeAus = (a) => (a ? (a.tipo === "afastamento" ? "atestado" : a.tipo) : null);
 export function calcDia(f, data, p, aus) {
   if (data < f.admissao || (f.demissao && data > f.demissao)) return { fora: true };
   const dow = toDate(data).getDay();
@@ -109,10 +113,11 @@ export function useRh(perfil) {
   const carregar = useCallback(async () => {
     try {
       const q = (t, o) => supabase.from(t).select("*").order(o);
-      const rs = await Promise.all([q("rh_setores", "nome"), q("rh_funcionarios", "nome"), q("rh_ausencias", "data_ini"), q("rh_exames", "realizado_em"), q("rh_epi_tipos", "nome"), supabase.from("rh_epi_nao_usa").select("*")]);
+      const rs = await Promise.all([q("rh_setores", "nome"), q("rh_funcionarios", "nome"), q("rh_ausencias", "data_ini"), q("rh_exames", "realizado_em"), q("rh_epi_tipos", "nome"), supabase.from("rh_epi_nao_usa").select("*"), q("rh_vales", "data")]);
       const er = rs.find(r => r.error); if (er) throw er.error;
+      const parcelas = await buscarTudo(() => supabase.from("rh_vale_parcelas").select("*").order("competencia").order("id"));
       const trocas = await buscarTudo(() => supabase.from("rh_epi_trocas").select("*").order("data_troca", { ascending: false }).order("id"));
-      setD({ setores: rs[0].data, funcs: rs[1].data, aus: rs[2].data, exames: rs[3].data, epis: rs[4].data, naoUsa: rs[5].data, trocas });
+      setD({ setores: rs[0].data, funcs: rs[1].data, aus: rs[2].data, exames: rs[3].data, epis: rs[4].data, naoUsa: rs[5].data, vales: rs[6].data, parcelas, trocas });
       setErro("");
     } catch (e) { setErro(e.message); }
   }, [perfil.empresa_id]);

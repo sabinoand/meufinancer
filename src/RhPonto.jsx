@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight, Printer, Save } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { Kpi, Pill, fmtData, hoje, hm, hmS, toDate, DIAS, MESES, OCORR, calcDia, diasDoMes, resumoPeriodo, buscarTudo, pad, iso, addDias, minToTime, tempoEmpresa } from "./rhLib.jsx";
+import { ausDoDia, ocDeAus, Kpi, Pill, fmtData, hoje, hm, hmS, toDate, DIAS, MESES, OCORR, calcDia, diasDoMes, resumoPeriodo, buscarTudo, pad, iso, addDias, minToTime, tempoEmpresa } from "./rhLib.jsx";
 
-const OPCOES = ["normal", "falta", "atestado", "ferias", "folga", "feriado", "compensacao"];
+const OPCOES = ["normal", "falta", "falta_just", "atestado", "ferias", "folga", "feriado", "compensacao"];
+const AUS_OC = ["falta", "falta_just", "atestado", "ferias", "folga"];
 const vazio = (r) => !r.e1 && !r.s1 && !r.e2 && !r.s2 && r.ocorrencia === "normal" && !r.observacao;
 
 export default function RhPonto({ rh }) {
@@ -36,7 +37,7 @@ export default function RhPonto({ rh }) {
 
   const mapa = useMemo(() => new Map(pontoMes.map(p => [p.funcionario_id + "|" + p.data, p])), [pontoMes]);
   const salvo = (d) => mapa.get(func.id + "|" + d);
-  const linha = (d) => { const s = salvo(d); const base = { e1: s?.e1 || "", s1: s?.s1 || "", e2: s?.e2 || "", s2: s?.s2 || "", ocorrencia: s?.ocorrencia || "normal", observacao: s?.observacao || "" }; return edit[d] ? { ...base, ...edit[d] } : base; };
+  const linha = (d) => { const s = salvo(d); const base = { e1: s?.e1 || "", s1: s?.s1 || "", e2: s?.e2 || "", s2: s?.s2 || "", ocorrencia: (s?.ocorrencia && s.ocorrencia !== "normal") ? s.ocorrencia : (ocDeAus(ausDoDia(func.id, d, rh.aus)) || "normal"), observacao: s?.observacao || "" }; return edit[d] ? { ...base, ...edit[d] } : base; };
   const toRow = (l) => ({ e1: l.e1 || null, s1: l.s1 || null, e2: l.e2 || null, s2: l.s2 || null, ocorrencia: l.ocorrencia, observacao: l.observacao.trim() || null });
   const set = (d, k, v) => setEdit(e => ({ ...e, [d]: { ...(e[d] || {}), [k]: v } })); 
   const mudou = Object.keys(edit).length;
@@ -44,14 +45,36 @@ export default function RhPonto({ rh }) {
   const calc = (d) => func ? calcDia(func, d, { ...toRow(linha(d)) }, rh.aus) : {};
   const res = func ? resumoPeriodo(func, dias, new Map(dias.map(d => [func.id + "|" + d, toRow(linha(d))])), rh.aus) : null;
 
+  async function tirarDia(a, d) { // remove um dia de dentro de um registro de ausência
+    if (a.data_ini === d && a.data_fim === d) return supabase.from("rh_ausencias").delete().eq("id", a.id);
+    if (a.data_ini === d) return supabase.from("rh_ausencias").update({ data_ini: addDias(d, 1) }).eq("id", a.id);
+    if (a.data_fim === d) return supabase.from("rh_ausencias").update({ data_fim: addDias(d, -1) }).eq("id", a.id);
+    const r1 = await supabase.from("rh_ausencias").update({ data_fim: addDias(d, -1) }).eq("id", a.id); if (r1.error) return r1;
+    return supabase.from("rh_ausencias").insert({ empresa_id: a.empresa_id, funcionario_id: a.funcionario_id, tipo: a.tipo, data_ini: addDias(d, 1), data_fim: a.data_fim, cid: a.cid, observacao: a.observacao });
+  }
   async function salvar() {
     setBusy(true); setErro(""); setOk("");
-    const up = [], del = [];
-    for (const d of Object.keys(edit)) { const r = toRow(linha(d)); if (vazio(r)) { if (salvo(d)) del.push(d); } else up.push({ ...r, empresa_id: rh.empresa_id, funcionario_id: func.id, data: d }); }
-    let er = null;
-    if (up.length) { const { error } = await supabase.from("rh_ponto").upsert(up, { onConflict: "funcionario_id,data" }); er = error; }
-    for (const d of del) { if (er) break; const { error } = await supabase.from("rh_ponto").delete().eq("funcionario_id", func.id).eq("data", d); er = error; }
+    const up = [], del = []; let er = null; let mexeuAus = false;
+    try {
+      for (const d of Object.keys(edit)) {
+        const r = toRow(linha(d)); const querOc = r.ocorrencia;
+        // atestado / falta / férias / folga ficam no cadastro de Atestados e faltas (fonte única)
+        const a = ausDoDia(func.id, d, rh.aus);
+        if (AUS_OC.includes(querOc)) {
+          if (!a || ocDeAus(a) !== querOc) {
+            if (a) { const x = await tirarDia(a, d); if (x.error) throw x.error; }
+            const x = await supabase.from("rh_ausencias").insert({ empresa_id: rh.empresa_id, funcionario_id: func.id, tipo: querOc, data_ini: d, data_fim: d }); if (x.error) throw x.error;
+            mexeuAus = true;
+          }
+          r.ocorrencia = "normal";
+        } else if (a) { const x = await tirarDia(a, d); if (x.error) throw x.error; mexeuAus = true; }
+        if (vazio(r)) { if (salvo(d)) del.push(d); } else up.push({ ...r, empresa_id: rh.empresa_id, funcionario_id: func.id, data: d });
+      }
+      if (up.length) { const { error } = await supabase.from("rh_ponto").upsert(up, { onConflict: "funcionario_id,data" }); if (error) throw error; }
+      for (const d of del) { const { error } = await supabase.from("rh_ponto").delete().eq("funcionario_id", func.id).eq("data", d); if (error) throw error; }
+    } catch (e) { er = e; }
     setBusy(false);
+    if (mexeuAus) rh.recarregar();
     if (er) return setErro(er.message);
     setEdit({}); setTick(t => t + 1); setOk("Salvo.");
   }
@@ -114,7 +137,7 @@ export default function RhPonto({ rh }) {
                 return (<tr key={d} className={(dow === 0 || dow === 6 ? "fds " : "") + (c.fora ? "fora " : "") + (edit[d] ? "mod" : "")}>
                   <td style={{ whiteSpace: "nowrap" }}><b>{d.slice(8)}</b> <span className="muted">{DIAS[dow]}</span></td>
                   {["e1", "s1", "e2", "s2"].map(k => <td key={k}><input type="time" disabled={dis} value={l[k]} onChange={e => set(d, k, e.target.value)} /></td>)}
-                  <td><select disabled={dis} value={l.ocorrencia} onChange={e => set(d, "ocorrencia", e.target.value)}>{OPCOES.map(o => <option key={o} value={o}>{o === "normal" ? "—" : OCORR[o]}</option>)}</select>{c.derivada && <div className="muted" style={{ fontSize: 11 }}>{OCORR[c.oc]} (cadastro)</div>}</td>
+                  <td><select disabled={dis} value={l.ocorrencia} onChange={e => set(d, "ocorrencia", e.target.value)}>{OPCOES.map(o => <option key={o} value={o}>{o === "normal" ? "—" : OCORR[o]}</option>)}</select></td>
                   <td>{c.fora ? "" : c.trab ? hm(c.trab) : ""}{c.incompleto && <span title="Batida incompleta" style={{ color: "#b45309" }}> ⚠</span>}</td>
                   <td className="muted">{c.fora || !c.prev ? "" : hm(c.prev)}</td>
                   <td style={{ fontWeight: 600, color: c.saldo < 0 ? "#b42318" : c.saldo > 0 ? "#166534" : undefined }}>{c.fora ? "" : c.semLanc ? <span className="muted" style={{ fontWeight: 400 }}>sem lanç.</span> : c.saldo ? hmS(c.saldo) : ""}</td>
@@ -128,7 +151,7 @@ export default function RhPonto({ rh }) {
           {mudou > 0 && <button className="btn" onClick={() => { setEdit({}); setOk(""); }}>Descartar</button>}
           {ok && <span className="muted">{ok}</span>}
         </div>
-        <p className="muted no-print">Previsto = jornada do funcionário (seg–sex e sábado). Atestado, férias, folga e feriado não geram falta nem desconto. "Falta" e "Compensação" descontam a jornada do dia (compensação usa o banco de horas). Dias úteis sem nenhuma batida aparecem como "sem lançamento" e não entram no saldo.</p>
+        <p className="muted no-print">Previsto = jornada do funcionário (seg–sex e sábado). Atestado, falta, férias e folga marcados aqui aparecem também em Atestados e faltas (e vice-versa). Atestado, férias, folga e feriado não geram desconto. "Falta" e "Compensação" descontam a jornada do dia (compensação usa o banco de horas). Dias úteis sem nenhuma batida aparecem como "sem lançamento" e não entram no saldo.</p>
       </>)}
     </div>
   );

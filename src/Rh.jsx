@@ -1,15 +1,16 @@
 import { useState, useMemo } from "react";
 import { Plus, Pencil, Trash2, Search } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { useRh, Estilos, Kpi, Pill, Modal, fmtData, hoje, diasEntre, tempoEmpresa, situacao, experiencia, minToTime, timeToMin, TIPOS_DESLIG, epiStatus, examesAtuais, exameStatus, toDate } from "./rhLib.jsx";
+import { useRh, Estilos, Kpi, Pill, Modal, fmtData, hoje, diasEntre, tempoEmpresa, situacao, experiencia, minToTime, timeToMin, TIPOS_DESLIG, epiStatus, examesAtuais, exameStatus, toDate, parseMoney } from "./rhLib.jsx";
 import RhMovimentos from "./RhMovimentos.jsx";
 import RhExperiencia from "./RhExperiencia.jsx";
 import RhAusencias from "./RhAusencias.jsx";
 import RhExames from "./RhExames.jsx";
 import RhEpi from "./RhEpi.jsx";
 import RhPonto from "./RhPonto.jsx";
+import RhFinanceiro from "./RhFinanceiro.jsx";
 
-const SECOES = [["visao", "Visão geral"], ["func", "Funcionários"], ["mov", "Contratações e demissões"], ["exp", "Experiência"], ["aus", "Atestados e faltas"], ["exames", "Exames"], ["epi", "EPI"], ["ponto", "Cartão de ponto"]];
+const SECOES = [["visao", "Visão geral"], ["func", "Funcionários"], ["mov", "Contratações e demissões"], ["exp", "Experiência"], ["aus", "Atestados e faltas"], ["exames", "Exames"], ["epi", "EPI"], ["ponto", "Cartão de ponto"], ["fin", "Salário e vales"]];
 
 export default function Rh({ perfil }) {
   const rh = useRh(perfil);
@@ -30,6 +31,7 @@ export default function Rh({ perfil }) {
       {sec === "exames" && <RhExames {...p} />}
       {sec === "epi" && <RhEpi {...p} />}
       {sec === "ponto" && <RhPonto {...p} />}
+      {sec === "fin" && <RhFinanceiro {...p} />}
     </div>
   );
 }
@@ -85,8 +87,8 @@ function Funcionarios({ rh, perfil }) {
   function abrir(x) {
     setErro("");
     setF(x ? { id: x.id, nome: x.nome, funcao: x.funcao || "", setor_id: x.setor_id || "", admissao: x.admissao, nascimento: x.nascimento || "", sexo: x.sexo || "",
-        jsem: minToTime(x.jornada_semana), jsab: minToTime(x.jornada_sabado), obs: x.observacao || "", demissao: x.demissao || "", tipo_deslig: x.tipo_deslig || "", motivo: x.motivo || "" }
-      : { nome: "", funcao: "", setor_id: "", admissao: hoje(), nascimento: "", sexo: "", jsem: "08:48", jsab: "00:00", obs: "", demissao: "", tipo_deslig: "", motivo: "" });
+        salario: x.salario != null ? String(x.salario).replace(".", ",") : "", jsem: minToTime(x.jornada_semana), jsab: minToTime(x.jornada_sabado), obs: x.observacao || "", demissao: x.demissao || "", tipo_deslig: x.tipo_deslig || "", motivo: x.motivo || "" }
+      : { nome: "", funcao: "", setor_id: "", admissao: hoje(), nascimento: "", sexo: "", salario: "", jsem: "08:48", jsab: "00:00", obs: "", demissao: "", tipo_deslig: "", motivo: "" });
     setModal(true);
   }
   async function salvar() {
@@ -96,7 +98,7 @@ function Funcionarios({ rh, perfil }) {
     if (f.demissao && !f.tipo_deslig) return setErro("Informe o tipo de desligamento.");
     setBusy(true);
     const dados = { nome: f.nome.trim(), funcao: f.funcao.trim() || null, setor_id: f.setor_id || null, admissao: f.admissao, nascimento: f.nascimento || null, sexo: f.sexo || null,
-      jornada_semana: timeToMin(f.jsem) ?? 528, jornada_sabado: timeToMin(f.jsab) ?? 0, observacao: f.obs.trim() || null,
+      salario: f.salario.trim() ? parseMoney(f.salario) : null, jornada_semana: timeToMin(f.jsem) ?? 528, jornada_sabado: timeToMin(f.jsab) ?? 0, observacao: f.obs.trim() || null,
       demissao: f.demissao || null, tipo_deslig: f.demissao ? f.tipo_deslig : null, motivo: f.demissao ? (f.motivo.trim() || null) : null };
     const { error } = f.id ? await supabase.from("rh_funcionarios").update(dados).eq("id", f.id)
       : await supabase.from("rh_funcionarios").insert({ ...dados, empresa_id: rh.empresa_id, exp_status: diasEntre(f.admissao, hoje()) >= 90 ? "efetivado" : "pendente" });
@@ -167,6 +169,7 @@ function Funcionarios({ rh, perfil }) {
             <label>Nascimento<input type="date" value={f.nascimento} onChange={e => setF({ ...f, nascimento: e.target.value })} /></label>
             <label>Sexo<select value={f.sexo} onChange={e => setF({ ...f, sexo: e.target.value })}><option value="">—</option><option value="M">Masculino</option><option value="F">Feminino</option></select></label>
           </div>
+          <label>Salário mensal (R$)<input inputMode="decimal" placeholder="Ex.: 2200,00" value={f.salario} onChange={e => setF({ ...f, salario: e.target.value })} /></label>
           <div className="muted" style={{ marginTop: 4 }}>Jornada diária (usada no cartão de ponto)</div>
           <div className="g2">
             <label>Segunda a sexta<input type="time" value={f.jsem} onChange={e => setF({ ...f, jsem: e.target.value })} /></label>

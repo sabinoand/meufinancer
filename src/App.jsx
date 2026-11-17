@@ -11,10 +11,10 @@ import Solicitacoes from "./Solicitacoes.jsx";
 import FichasTecnicas from "./FichasTecnicas.jsx";
 import Rh from "./Rh.jsx";
 
-const VERSION = "0.15.0";
+const VERSION = "0.16.0";
 const NOVIDADES = [
-  "Novo módulo RH para terceirizadas: funcionários e setores, contratações/demissões, experiência, atestados e faltas, exames e EPI",
-  "Cartão de ponto: lance as batidas, veja horas trabalhadas, extras, faltas e banco de horas, e imprima"
+  "RH: atestado, falta, férias e folga agora ficam ligados ao cartão de ponto — lançou em um, aparece no outro",
+  "RH: salário do funcionário, vales com parcelas de desconto, folha do mês estimada e 13º salário"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
