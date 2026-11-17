@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, UserCheck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
@@ -9,11 +9,12 @@ import Requisicoes from "./Requisicoes.jsx";
 import Almoxarifado from "./Almoxarifado.jsx";
 import Solicitacoes from "./Solicitacoes.jsx";
 import FichasTecnicas from "./FichasTecnicas.jsx";
+import Rh from "./Rh.jsx";
 
-const VERSION = "0.14.0";
+const VERSION = "0.15.0";
 const NOVIDADES = [
-  "Almoxarifado: entrada por XML da nota fiscal (o sistema lê os itens e você confere)",
-  "Almoxarifado: histórico agora organizado por dia, com filtros de data, item e tipo"
+  "Novo módulo RH para terceirizadas: funcionários e setores, contratações/demissões, experiência, atestados e faltas, exames e EPI",
+  "Cartão de ponto: lance as batidas, veja horas trabalhadas, extras, faltas e banco de horas, e imprima"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
@@ -116,6 +117,7 @@ function Shell({ perfil, onPerfil }) {
   if (perfil.papel === "fornecedor" || admin) { itens.push({ id: "estoque", nome: "Estoque", icon: Package }); itens.push({ id: "materia", nome: "Matéria-prima", icon: Layers }); }
   if (perfil.papel === "fornecedor") itens.push({ id: "requisicoes", nome: "Requisições", icon: FileText });
   if (perfil.papel === "fornecedor") itens.push({ id: "fichas", nome: "Fichas técnicas", icon: Ruler });
+  if (perfil.papel === "fornecedor") itens.push({ id: "rh", nome: "RH", icon: UserCheck });
   if (almox || admin) itens.push({ id: "almoxarifado", nome: "Almoxarifado", icon: Warehouse });
   if (perfil.papel === "fornecedor" || almox || admin) itens.push({ id: "solicitacoes", nome: "Solicitações", icon: PackagePlus, badge: novas });
   if (admin) itens.push({ id: "empresas", nome: "Empresas", icon: Building2 }, { id: "usuarios", nome: "Usuários", icon: Users });
@@ -140,6 +142,7 @@ function Shell({ perfil, onPerfil }) {
         {aba === "materia" && <MateriaPrima perfil={perfil} />}
         {aba === "requisicoes" && perfil.papel === "fornecedor" && <Requisicoes perfil={perfil} />}
         {aba === "fichas" && perfil.papel === "fornecedor" && <FichasTecnicas perfil={perfil} />}
+        {aba === "rh" && perfil.papel === "fornecedor" && <Rh perfil={perfil} />}
         {aba === "almoxarifado" && (almox || admin) && <Almoxarifado perfil={perfil} />}
         {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
         {aba === "empresas" && admin && <Empresas />}
