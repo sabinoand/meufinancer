@@ -54,7 +54,7 @@ export default function RhEpi({ rh, sub }) {
         {fichaF && <div className="folha print-area">
           <h3>FICHA DE ENTREGA DE EPI</h3><h1>{fichaF.nome}</h1><div className="muted">{fichaF.funcao || ""} · admissão {fmtData(fichaF.admissao)}</div>
           <table style={{ marginTop: 10 }}><thead><tr><th>Data</th><th>EPI</th><th>Assinou?</th><th>Obs.</th><th className="no-print"></th></tr></thead>
-            <tbody>{rh.trocas.filter(t => t.funcionario_id === fichaF.id).map(t => <tr key={t.id}><td>{fmtData(t.data_troca)}</td><td>{nomeE(t.epi_id)}</td><td>{t.assinado ? "Sim" : "Não"}</td><td>{t.observacao || ""}</td><td className="no-print"><button className="btn sm" onClick={() => excTroca(t)}><Trash2 size={13} /></button></td></tr>)}</tbody></table>
+            <tbody>{rh.trocas.filter(t => t.funcionario_id === fichaF.id).map(t => <tr key={t.id}><td>{fmtData(t.data_troca)}</td><td>{nomeE(t.epi_id)}</td><td>{t.assinado ? "Sim" : "Não"}</td><td>{t.observacao || ""}</td><td className="no-print"><button className="btn sm" onClick={() => excTroca(t)} aria-label="Excluir"><Trash2 size={13} /></button></td></tr>)}</tbody></table>
           {!rh.trocas.some(t => t.funcionario_id === fichaF.id) && <p className="muted">Nenhuma entrega registrada.</p>}
           <div style={{ marginTop: 40, borderTop: "1px solid #333", width: 280, paddingTop: 4, fontSize: 13 }}>Assinatura do funcionário</div>
         </div>}
@@ -62,7 +62,7 @@ export default function RhEpi({ rh, sub }) {
       {aba === "tipos" && <>
         <div style={{ marginBottom: 10 }}><button className="btn primary" onClick={() => abrirTipo(null)}><Plus size={14} /> Novo EPI</button></div>
         {rh.epis.length === 0 && <p className="muted">Nenhum EPI cadastrado.</p>}
-        {rh.epis.map(t => <div className="item" key={t.id}><div><b>{t.nome}</b><div className="muted">Troca a cada {t.periodo_meses} {t.periodo_meses === 1 ? "mês" : "meses"}{t.ativo ? "" : " · inativo"}</div></div><div className="row"><button className="btn sm" onClick={() => abrirTipo(t)}><Pencil size={13} /></button><button className="btn sm" onClick={() => excTipo(t)}><Trash2 size={13} /></button></div></div>)}
+        {rh.epis.map(t => <div className="item" key={t.id}><div><b>{t.nome}</b><div className="muted">Troca a cada {t.periodo_meses} {t.periodo_meses === 1 ? "mês" : "meses"}{t.ativo ? "" : " · inativo"}</div></div><div className="row"><button className="btn sm" onClick={() => abrirTipo(t)} aria-label="Editar"><Pencil size={13} /></button><button className="btn sm" onClick={() => excTipo(t)} aria-label="Excluir"><Trash2 size={13} /></button></div></div>)}
       </>}
       {m?.k === "troca" && <Modal titulo={`${m.e.nome} — ${m.fu.nome}`} onClose={() => setM(null)} onSubmit={m.st === "nao" ? null : salvarTroca} erro={erro} busy={busy} salvar="Registrar troca">
         {m.st === "nao" ? <><div className="muted">Este funcionário está marcado como "não usa" este EPI.</div><button type="button" className="btn" disabled={busy} onClick={voltarUsa}>Voltar a controlar</button></> : <>

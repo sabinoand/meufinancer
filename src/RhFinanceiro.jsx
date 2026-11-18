@@ -83,7 +83,7 @@ function Vales({ rh }) {
         <div key={v.id} className="item" style={{ display: "block" }}>
           <div className="row" style={{ justifyContent: "space-between" }}>
             <div><b>{nome(v.funcionario_id)}</b> · {v.descricao}<div className="muted">{fmtData(v.data)} · {brl(v.valor)} em {v.parcelas}× · falta descontar {brl(rest)}{v.observacao ? ` · ${v.observacao}` : ""}</div></div>
-            <div className="row"><Pill cls={rest === 0 ? "ok" : "amar"}>{rest === 0 ? "Quitado" : "Em aberto"}</Pill><button className="btn sm" onClick={() => setAberto(aberto === v.id ? null : v.id)}>{aberto === v.id ? "Ocultar" : "Parcelas"}</button><button className="btn sm" onClick={() => excluir(v)}><Trash2 size={13} /></button></div>
+            <div className="row"><Pill cls={rest === 0 ? "ok" : "amar"}>{rest === 0 ? "Quitado" : "Em aberto"}</Pill><button className="btn sm" onClick={() => setAberto(aberto === v.id ? null : v.id)}>{aberto === v.id ? "Ocultar" : "Parcelas"}</button><button className="btn sm" onClick={() => excluir(v)} aria-label="Excluir"><Trash2 size={13} /></button></div>
           </div>
           {aberto === v.id && <div style={{ marginTop: 8 }}>{ps.map(p => <label key={p.id} className="row" style={{ flexDirection: "row", alignItems: "center", padding: "4px 0", fontSize: 14 }}><input type="checkbox" checked={p.descontada} onChange={() => toggle(p)} /> {p.numero}/{v.parcelas} · {MESES[Number(p.competencia.slice(5, 7)) - 1]}/{p.competencia.slice(0, 4)} · {brl(p.valor)} {p.descontada ? <Pill cls="ok">descontada</Pill> : p.competencia.slice(0, 7) < mesAtual ? <Pill cls="amar">atrasada</Pill> : null}</label>)}</div>}
         </div>); })}

@@ -47,13 +47,13 @@ export default function RhAusencias({ rh }) {
       {lista.map(a => (
         <div className="item" key={a.id}>
           <div><b>{nome(a.funcionario_id)}</b><div className="muted">{fmtData(a.data_ini)}{a.data_fim !== a.data_ini ? ` a ${fmtData(a.data_fim)}` : ""} · {dias(a)} {dias(a) === 1 ? "dia" : "dias"}{a.cid ? ` · CID ${a.cid}` : ""}{a.observacao ? ` · ${a.observacao}` : ""}</div></div>
-          <div className="row"><Pill cls={COR[a.tipo]}>{TIPOS_AUS[a.tipo]}</Pill><button className="btn sm" onClick={() => abrir(a)}><Pencil size={13} /></button><button className="btn sm" onClick={() => excluir(a)}><Trash2 size={13} /></button></div>
+          <div className="row"><Pill cls={COR[a.tipo]}>{TIPOS_AUS[a.tipo]}</Pill><button className="btn sm" onClick={() => abrir(a)} aria-label="Editar"><Pencil size={13} /></button><button className="btn sm" onClick={() => excluir(a)} aria-label="Excluir"><Trash2 size={13} /></button></div>
         </div>))}
       {m && <Modal titulo={f.id ? "Editar registro" : "Novo registro"} onClose={() => setM(false)} onSubmit={salvar} erro={erro} busy={busy}>
         <label>Funcionário<select value={f.funcionario_id} onChange={e => setF({ ...f, funcionario_id: e.target.value })}><option value="">Selecione</option>{rh.funcs.filter(x => !x.demissao || x.id === f.funcionario_id).map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></label>
         <label>Tipo<select value={f.tipo} onChange={e => setF({ ...f, tipo: e.target.value })}>{Object.entries(TIPOS_AUS).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
         <div className="g2"><label>Início<input type="date" value={f.data_ini} onChange={e => setF({ ...f, data_ini: e.target.value, data_fim: f.data_fim < e.target.value ? e.target.value : f.data_fim })} /></label><label>Fim<input type="date" value={f.data_fim} onChange={e => setF({ ...f, data_fim: e.target.value })} /></label></div>
-        {(f.tipo === "atestado" || f.tipo === "afastamento") && <label>CID (opcional)<input value={f.cid} onChange={e => setF({ ...f, cid: e.target.value })} /></label>}
+        {(f.tipo === "atestado" || f.tipo === "afastamento") && <label>CID (opcional)<input value={f.cid} onChange={e => setF({ ...f, cid: e.target.value })} /><span className="muted" style={{ fontSize: 12 }}>É um dado de saúde (sensível pela LGPD). Preencha só se for realmente necessário.</span></label>}
         <label>Observação<input value={f.obs} onChange={e => setF({ ...f, obs: e.target.value })} /></label>
         <div className="muted">Os dias deste registro aparecem automaticamente no cartão de ponto.</div>
       </Modal>}

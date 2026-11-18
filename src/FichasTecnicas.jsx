@@ -216,8 +216,8 @@ export default function FichasTecnicas({ perfil, secao }) {
                       <td>{ORIGEM[p.origem]}{p.fornecedor && <div className="muted">{p.fornecedor}</div>}</td>
                       <td>{p.tipo === "tecido" ? <span className="muted">conforme o tecido do pedido</span> : p.materia_id ? mat(p.materia_id)?.nome : <span className="pill falta">sem vínculo</span>}</td>
                       <td className="no-print" style={{ whiteSpace: "nowrap" }}>
-                        <button className="btn sm" onClick={() => abrirPeca(p)}><Pencil size={13} /></button>{" "}
-                        <button className="btn sm" onClick={() => excluirPeca(p)}><Trash2 size={13} /></button>
+                        <button className="btn sm" onClick={() => abrirPeca(p)} aria-label="Editar"><Pencil size={13} /></button>{" "}
+                        <button className="btn sm" onClick={() => excluirPeca(p)} aria-label="Excluir"><Trash2 size={13} /></button>
                       </td>
                     </tr>
                   ))}

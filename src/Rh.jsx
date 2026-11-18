@@ -155,7 +155,7 @@ function Funcionarios({ rh, perfil, sub }) {
         <form className="row" onSubmit={addSetor} style={{ marginBottom: 12 }}><input placeholder="Nome do novo setor (ex.: Costura, Estofaria)" value={novoSetor} onChange={e => setNovoSetor(e.target.value)} style={{ flex: 1, minWidth: 200 }} /><button className="btn primary"><Plus size={14} /> Adicionar setor</button></form>
         {rh.setores.length === 0 && <p className="muted">Nenhum setor ainda.</p>}
         {rh.setores.map(s => <div className="item" key={s.id}><div><b>{s.nome}</b><div className="muted">{rh.funcs.filter(x => x.setor_id === s.id && !x.demissao).length} ativo(s)</div></div>
-          <div className="row"><button className="btn sm" onClick={() => renomear(s)}><Pencil size={13} /></button><button className="btn sm" onClick={() => excSetor(s)}><Trash2 size={13} /></button></div></div>)}
+          <div className="row"><button className="btn sm" onClick={() => renomear(s)} aria-label="Editar"><Pencil size={13} /></button><button className="btn sm" onClick={() => excSetor(s)} aria-label="Excluir"><Trash2 size={13} /></button></div></div>)}
       </>}
       {modal && (
         <Modal titulo={f.id ? "Editar funcionário" : "Novo funcionário"} onClose={() => setModal(false)} onSubmit={salvar} erro={erro} busy={busy}>

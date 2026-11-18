@@ -234,7 +234,7 @@ export default function MateriaPrima({ perfil, secao }) {
                       {!admin && <td onClick={e => e.stopPropagation()}><span className="row" style={{ flexWrap: "nowrap" }}>
                         <button className="btn sm" title="Entrada" onClick={() => abrirMov("entrada", m)}><ArrowDownToLine size={14} /></button>
                         <button className="btn sm" title="Saída" onClick={() => abrirMov("saida", m)}><ArrowUpFromLine size={14} /></button>
-                        <button className="btn sm" title="Editar" onClick={() => abrirItem(m)}><Pencil size={14} /></button>
+                        <button className="btn sm" title="Editar" onClick={() => abrirItem(m)} aria-label="Editar"><Pencil size={14} /></button>
                       </span></td>}
                     </tr>
                   ))}

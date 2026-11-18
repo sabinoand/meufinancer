@@ -248,7 +248,7 @@ export default function Solicitacoes({ perfil, onMudou }) {
                   <div className="row">
                     <input type="number" step="any" min="0" placeholder="Quantidade" value={l.qtd} onChange={e => setLinha(l.k, { qtd: e.target.value })} style={{ flex: 1, minWidth: 0 }} />
                     <span className="muted" style={{ minWidth: 34 }}>{it?.unidade}</span>
-                    {f.linhas.length > 1 && <button type="button" className="btn sm" onClick={() => setF({ ...f, linhas: f.linhas.filter(x => x.k !== l.k) })}><Trash2 size={13} /></button>}
+                    {f.linhas.length > 1 && <button type="button" className="btn sm" onClick={() => setF({ ...f, linhas: f.linhas.filter(x => x.k !== l.k) })} aria-label="Excluir"><Trash2 size={13} /></button>}
                   </div>
                 </div>
               );

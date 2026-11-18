@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, UserCheck, Search, ChevronRight } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, UserCheck, Search, ChevronRight, ShieldCheck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 import Calendario from "./Calendario.jsx";
@@ -11,17 +11,18 @@ import Solicitacoes from "./Solicitacoes.jsx";
 import FichasTecnicas from "./FichasTecnicas.jsx";
 import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
+import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.18.0";
+const VERSION = "0.19.0";
 const NOVIDADES = [
-  "Cada módulo agora tem menu lateral com as suas seções (no celular, ele vira uma faixa de atalhos)",
-  "RH reorganizado em grupos: equipe, contratações, experiência, ausências, saúde, ponto e dinheiro"
+  "Privacidade (LGPD): política, termos de uso, aceite registrado e área Minha conta para baixar seus dados e pedir correção ou exclusão",
+  "Fonte própria (sem chamadas ao Google), melhor contraste, navegação por teclado e aviso sobre dados de saúde (CID)"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 
 const css = `
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef2fb;color:#1c2330}button,input,select{font-family:inherit}
-.muted{color:#6b7385;font-size:14px}h1{font-size:22px;margin:0 0 4px}h2{font-size:18px;margin:0 0 12px}
+.muted{color:#5a6478;font-size:14px}h1{font-size:22px;margin:0 0 4px}h2{font-size:18px;margin:0 0 12px}
 .card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 .auth{width:100%;max-width:380px;display:flex;flex-direction:column;gap:12px}
@@ -62,13 +63,18 @@ input,select{padding:10px 12px;border:1px solid #d5d9e2;border-radius:8px;font-s
 .tile svg.sp{position:absolute;right:14px;bottom:14px;width:22px;height:22px;color:var(--c1);opacity:0;transform:rotate(-25deg) scale(.6);transition:all .25s}
 .tile:hover svg.sp,.tile:focus-visible svg.sp{opacity:.9;transform:none}
 .tile .bd{position:absolute;top:14px;right:14px;background:#ef4444;color:#fff;border-radius:99px;font-size:12px;font-weight:700;padding:2px 8px}
+:focus-visible{outline:2px solid #1747e6;outline-offset:2px}
+.rodape{margin-top:auto;padding:18px 24px 22px;display:flex;gap:6px 16px;flex-wrap:wrap;justify-content:center;font-size:13px;color:#5a6478}
+.rodape button{background:none;border:0;color:#1236b8;cursor:pointer;font-size:13px;padding:2px 4px;text-decoration:underline}
+.ok-msg{background:#dcfce7;color:#166534;padding:8px 12px;border-radius:8px;font-size:14px}
+.avatarbtn{background:none;border:0;padding:0;cursor:pointer;display:flex;align-items:center;gap:9px;color:#fff;font-size:14px;border-radius:99px}
 .main{flex:1;width:100%;padding:24px;max-width:1100px;margin:0 auto}
 .modulo{display:flex;gap:22px;align-items:flex-start;width:100%;max-width:1320px;margin:0 auto;padding:24px}
 .conteudo{flex:1;min-width:0}
 .lateral{width:236px;flex:none;position:sticky;top:82px;background:#fff;border:1px solid #dfe7f6;border-radius:18px;padding:12px;display:flex;flex-direction:column;gap:2px;max-height:calc(100vh - 100px);overflow-y:auto}
 .lat-h{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;padding:4px 6px 12px;border-bottom:1px solid #eef1f8;margin-bottom:6px;color:#14213d}
 .chip.sm{width:34px;height:34px;border-radius:10px;box-shadow:0 6px 12px -8px var(--c2)}
-.lat-g{font-size:12.5px;font-weight:600;color:#7a869f;padding:12px 10px 4px}
+.lat-g{font-size:12.5px;font-weight:600;color:#5f6b85;padding:12px 10px 4px}
 .lateral button{text-align:left;border:0;background:none;padding:9px 12px;border-radius:10px;font-size:14.5px;color:#34415c;cursor:pointer;position:relative}
 .lateral button:hover{background:#f1f5fd}
 .lateral button.on{background:#e6eeff;color:#1236b8;font-weight:600}
@@ -88,6 +94,18 @@ export default function App() {
   const [session, setSession] = useState(undefined);
   const [perfil, setPerfil] = useState(null);
   const [erro, setErro] = useState("");
+  const [legal, setLegal] = useState(null);
+  const [aceite, setAceite] = useState(null);
+
+  useEffect(() => {
+    if (!perfil) { setAceite(null); return; }
+    supabase.from("aceites").select("id", { count: "exact", head: true }).eq("user_id", perfil.user_id).eq("versao", TERMOS_VERSAO).then(({ count }) => setAceite((count || 0) >= 2));
+  }, [perfil?.user_id]);
+  // Esc fecha o modal aberto (botão Cancelar/Fechar)
+  useEffect(() => {
+    const f = (e) => { if (e.key !== "Escape") return; const bg = [...document.querySelectorAll(".modal-bg")].pop(); const b = bg && [...bg.querySelectorAll("button")].find(x => /^(Cancelar|Fechar|Entendi|Ok)/i.test(x.textContent.trim())); b && b.click(); };
+    window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -106,13 +124,13 @@ export default function App() {
 
   let body;
   if (session === undefined) body = <div className="center muted">Carregando...</div>;
-  else if (!session) body = <Auth />;
+  else if (!session) body = <Auth abrirLegal={setLegal} />;
   else if (!perfil) body = <div className="center">{erro ? <div className="err">{erro}</div> : <span className="muted">Carregando...</span>}</div>;
   else if (!perfil.ativo) body = <Bloqueio titulo="Acesso desativado" texto="Fale com o administrador." />;
   else if (perfil.papel === "pendente") body = <Bloqueio titulo="Aguardando liberação" texto={`Olá, ${perfil.nome}! Seu cadastro foi criado. O administrador precisa liberar seu acesso.`} />;
-  else body = <Shell perfil={perfil} onPerfil={carregarPerfil} />;
+  else body = <Shell perfil={perfil} onPerfil={carregarPerfil} abrirLegal={setLegal} />;
 
-  return <><style>{css}</style>{body}</>;
+  return <><style>{css}</style>{body}{session && perfil && aceite === false && <AceiteModal onAceito={() => setAceite(true)} onSair={() => supabase.auth.signOut()} abrir={setLegal} />}{legal && <LegalModal doc={legal} onClose={() => setLegal(null)} />}</>;
 }
 
 function Bloqueio({ titulo, texto }) {
@@ -124,7 +142,7 @@ function Bloqueio({ titulo, texto }) {
   );
 }
 
-function Shell({ perfil, onPerfil }) {
+function Shell({ perfil, onPerfil, abrirLegal }) {
   const admin = perfil.papel === "admin";
   const [aba, setAba] = useState("inicio");
   const [novidades, setNovidades] = useState(perfil.ultima_versao_vista !== VERSION);
@@ -136,8 +154,10 @@ function Shell({ perfil, onPerfil }) {
 
   const almox = perfil.papel === "almoxarife";
   const [novas, setNovas] = useState(0);
+  const [pedPriv, setPedPriv] = useState(0);
   const atualizarNovas = useCallback(async () => {
     // almoxarife: pedidos novos; terceirizada: pedidos concluídos ainda não lançados no estoque
+    if (perfil.papel === "admin") { const { count } = await supabase.from("pedidos_lgpd").select("id", { count: "exact", head: true }).eq("status", "aberto"); setPedPriv(count || 0); return; }
     if (!almox && perfil.papel !== "fornecedor") return;
     const q = supabase.from("solicitacoes").select("id", { count: "exact", head: true }).eq("status", almox ? "solicitado" : "concluido");
     const { count } = await (almox ? q : q.is("no_estoque_em", null));
@@ -153,7 +173,7 @@ function Shell({ perfil, onPerfil }) {
   if (almox || admin) add("almoxarifado", "Almoxarifado", "Itens, entradas, saídas e notas fiscais", Warehouse, "mat");
   if (perfil.papel === "fornecedor" || almox || admin) add("solicitacoes", "Solicitações", "Coletas e entregas de material", PackagePlus, "mat", novas);
   if (perfil.papel === "fornecedor") add("rh", "RH", "Equipe, ponto, EPI, vales e 13º", UserCheck, "pes");
-  if (admin) { add("empresas", "Empresas", "Terceirizadas cadastradas", Building2, "adm"); add("usuarios", "Usuários", "Acessos e permissões", Users, "adm"); }
+  if (admin) { add("empresas", "Empresas", "Terceirizadas cadastradas", Building2, "adm"); add("usuarios", "Usuários", "Acessos e permissões", Users, "adm"); add("privacidade", "Privacidade", "Pedidos dos usuários sobre seus dados", ShieldCheck, "adm", pedPriv); }
   const atual = itens.find(i => i.id === aba);
   const [secs, setSecs] = useState({});
   const lista = SECOES[aba];
@@ -165,9 +185,9 @@ function Shell({ perfil, onPerfil }) {
     <div className="app">
       <header className="top">
         <button className="brandbtn" onClick={() => setAba("inicio")} aria-label="GestCel — voltar aos módulos"><Estrela />GestCel</button>
-        {atual && <div className="crumb"><button onClick={() => setAba("inicio")}>Módulos</button><ChevronRight size={14} /><b>{atual.nome}</b></div>}
+        {aba !== "inicio" && <div className="crumb"><button onClick={() => setAba("inicio")}>Módulos</button><ChevronRight size={14} /><b>{atual ? atual.nome : "Minha conta"}</b></div>}
         <div className="grow" />
-        <div className="user"><div className="avatar">{(perfil.nome || "?").trim()[0].toUpperCase()}</div><span className="nome">{perfil.nome}</span></div>
+        <button className="avatarbtn" onClick={() => setAba("conta")} aria-label="Minha conta e privacidade"><span className="avatar">{(perfil.nome || "?").trim()[0].toUpperCase()}</span><span className="nome">{perfil.nome}</span></button>
         <button className="sair" onClick={() => supabase.auth.signOut()}><LogOut size={15} />Sair</button>
       </header>
       {aba === "inicio" && <Inicio perfil={perfil} novas={novas} itens={itens} irPara={setAba} />}
@@ -190,6 +210,8 @@ function Shell({ perfil, onPerfil }) {
         {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
+        {aba === "privacidade" && admin && <PedidosPrivacidade />}
+        {aba === "conta" && <MinhaConta perfil={perfil} abrir={abrirLegal} />}
           </main>
         </div>
       ) : <main className="main">
@@ -204,7 +226,10 @@ function Shell({ perfil, onPerfil }) {
         {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
         {aba === "empresas" && admin && <Empresas />}
         {aba === "usuarios" && admin && <Usuarios meuId={perfil.user_id} />}
+        {aba === "privacidade" && admin && <PedidosPrivacidade />}
+        {aba === "conta" && <MinhaConta perfil={perfil} abrir={abrirLegal} />}
       </main>)}
+      <RodapeLegal abrir={abrirLegal} />
       {novidades && (
         <div className="modal-bg"><div className="card modal">
           <h2>Novidades (v{VERSION})</h2>

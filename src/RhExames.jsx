@@ -39,7 +39,7 @@ export default function RhExames({ rh }) {
         <div className="item" key={e.id}>
           <div><b>{nome(e.funcionario_id)}</b><div className="muted">{e.tipo} · realizado em {fmtData(e.realizado_em)}{e.observacao ? ` · ${e.observacao}` : ""}</div></div>
           <div className="row"><span className="muted">{e.validade ? `Validade ${fmtData(e.validade)}${s === "venc" ? ` (${-diasEntre(hoje(), e.validade)} dias atrás)` : ""}` : ""}</span><Pill cls={ST[s][0]}>{ST[s][1]}</Pill>
-            <button className="btn sm" onClick={() => excluir(e)}><Trash2 size={13} /></button></div>
+            <button className="btn sm" onClick={() => excluir(e)} aria-label="Excluir"><Trash2 size={13} /></button></div>
         </div>); })}
       {m && <Modal titulo="Registrar exame" onClose={() => setM(false)} onSubmit={salvar} erro={erro} busy={busy}>
         <label>Funcionário<select value={f.funcionario_id} onChange={e => setF({ ...f, funcionario_id: e.target.value })}><option value="">Selecione</option>{ativos.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></label>

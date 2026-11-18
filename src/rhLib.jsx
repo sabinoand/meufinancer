@@ -158,7 +158,7 @@ export const Kpi = ({ t, v, s, c }) => <div className={"kpi " + (c || "")}><div 
 export const Pill = ({ cls, children }) => <span className={"pill " + cls}>{children}</span>;
 export function Modal({ titulo, onClose, onSubmit, children, erro, busy, salvar = "Salvar" }) {
   return (
-    <div className="modal-bg"><form onSubmit={(e) => { e.preventDefault(); onSubmit && onSubmit(); }} className="card modal wide" style={{ display: "grid", gap: 10 }}>
+    <div className="modal-bg" role="dialog" aria-modal="true" aria-label={titulo}><form onSubmit={(e) => { e.preventDefault(); onSubmit && onSubmit(); }} className="card modal wide" style={{ display: "grid", gap: 10 }}>
       <h2 style={{ margin: 0 }}>{titulo}</h2>
       {children}
       {erro && <div className="err">{erro}</div>}

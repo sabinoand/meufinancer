@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { supabase } from "./supabaseClient.js";
+import { TERMOS_VERSAO, RodapeLegal } from "./Legal.jsx";
 
 const toEmail = (u) => `${u}@gestao.app`;
 const clean = (u) => u.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
 
-export default function Auth() {
+export default function Auth({ abrirLegal }) {
+  const [aceito, setAceito] = useState(false);
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
   const [nome, setNome] = useState("");
@@ -26,10 +28,12 @@ export default function Auth() {
         if (error) setMsg("Usuário ou senha incorretos.");
       } else {
         if (!nome.trim()) { setMsg("Informe seu nome."); setBusy(false); return; }
-        const { error } = await supabase.auth.signUp({
+        if (!aceito) { setMsg("Para criar a conta, aceite a Política de Privacidade e os Termos de Uso."); setBusy(false); return; }
+        const { data: cad, error } = await supabase.auth.signUp({
           email: toEmail(u), password,
           options: { data: { username: u, nome: nome.trim() } }
         });
+        if (!error && cad?.session) await supabase.rpc("registrar_aceite", { p_versao: TERMOS_VERSAO });
         if (error) setMsg(/registered|already/i.test(error.message) ? "Esse usuário já existe." : error.message);
       }
     } finally { setBusy(false); }
@@ -45,12 +49,19 @@ export default function Auth() {
         )}
         <label>Usuário<input value={username} onChange={e => setUsername(e.target.value)} autoCapitalize="none" autoComplete="username" /></label>
         <label>Senha<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} /></label>
-        {msg && <div className="err">{msg}</div>}
+        {mode === "signup" && (
+          <label className="row" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, fontSize: 14 }}>
+            <input type="checkbox" checked={aceito} onChange={e => setAceito(e.target.checked)} style={{ marginTop: 3 }} />
+            <span>Li e aceito a <button type="button" className="link" onClick={() => abrirLegal("privacidade")}>Política de Privacidade</button> e os <button type="button" className="link" onClick={() => abrirLegal("termos")}>Termos de Uso</button>.</span>
+          </label>
+        )}
+        {msg && <div className="err" role="alert">{msg}</div>}
         <button className="btn primary" disabled={busy}>{busy ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}</button>
         <button type="button" className="link" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMsg(""); }}>
           {mode === "login" ? "Primeiro acesso? Criar conta" : "Já tenho conta"}
         </button>
       </form>
+      <RodapeLegal abrir={abrirLegal} />
     </div>
   );
 }

@@ -301,7 +301,7 @@ export default function Almoxarifado({ perfil, secao }) {
                   {!admin && <td style={{ whiteSpace: "nowrap" }}>
                     <button className="btn sm" title="Entrada" onClick={() => abrirMov("entrada", i)}><ArrowDownToLine size={13} /></button>{" "}
                     <button className="btn sm" title="Saída" onClick={() => abrirMov("saida", i)}><ArrowUpFromLine size={13} /></button>{" "}
-                    <button className="btn sm" title="Editar" onClick={() => abrirItem(i)}><Pencil size={13} /></button>
+                    <button className="btn sm" title="Editar" onClick={() => abrirItem(i)} aria-label="Editar"><Pencil size={13} /></button>
                   </td>}
                 </tr>
               ))}
