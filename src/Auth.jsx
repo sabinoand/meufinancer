@@ -21,7 +21,7 @@ export default function Auth({ abrirLegal }) {
     if (u.length < 3) return setMsg("Usuário precisa ter ao menos 3 letras/números (sem espaços).");
     if (mode !== "login") {
       if (password.length < 8) return setMsg("A senha precisa ter ao menos 8 caracteres.");
-      if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) return setMsg("Use letras e números na senha.");
+      if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)) return setMsg("A senha precisa ter letra minúscula, maiúscula e número.");
       if (password.toLowerCase().includes(u)) return setMsg("A senha não pode conter o seu usuário.");
     } else if (!password) return setMsg("Informe a senha.");
     setBusy(true);
@@ -38,7 +38,7 @@ export default function Auth({ abrirLegal }) {
           options: { data: { username: u, nome: nome.trim() } }
         });
         if (!error && cad?.session) await supabase.rpc("registrar_aceite", { p_versao: TERMOS_VERSAO });
-        if (error) setMsg(/registered|already/i.test(error.message) ? "Esse usuário já existe." : error.message);
+        if (error) setMsg(/registered|already/i.test(error.message) ? "Esse usuário já existe." : /pwned|leaked|weak|easy|password/i.test(error.message) ? "Essa senha é fraca ou já apareceu em vazamentos. Escolha outra." : "Não foi possível criar a conta. Tente de novo.");
       }
     } finally { setBusy(false); }
   }

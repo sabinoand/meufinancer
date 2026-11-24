@@ -13,7 +13,7 @@ import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
 import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.21.0";
+const VERSION = "0.21.1";
 const NOVIDADES = [
   "Trocar senha em Minha conta (pede a senha atual e exige senha forte)",
   "Segurança reforçada: acesso anônimo ao banco removido, cabeçalhos de proteção (CSP, HSTS), senha mais forte no cadastro e limite de tamanho no XML da nota"

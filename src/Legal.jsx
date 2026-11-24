@@ -138,7 +138,7 @@ function TrocarSenha({ perfil }) {
     e.preventDefault(); setErro(""); setMsg("");
     if (!atual) return setErro("Informe a senha atual.");
     if (nova.length < 8) return setErro("A nova senha precisa ter ao menos 8 caracteres.");
-    if (!/[a-zA-Z]/.test(nova) || !/\d/.test(nova)) return setErro("Use letras e números na nova senha.");
+    if (!/[a-z]/.test(nova) || !/[A-Z]/.test(nova) || !/\d/.test(nova)) return setErro("A nova senha precisa ter letra minúscula, maiúscula e número.");
     if (perfil.username && nova.toLowerCase().includes(perfil.username.toLowerCase())) return setErro("A senha não pode conter o seu usuário.");
     if (nova === atual) return setErro("A nova senha precisa ser diferente da atual.");
     if (nova !== conf) return setErro("A confirmação não confere com a nova senha.");
@@ -149,7 +149,7 @@ function TrocarSenha({ perfil }) {
     if (e1) { setBusy(false); return setErro("Senha atual incorreta."); }
     const { error: e2 } = await supabase.auth.updateUser({ password: nova });
     setBusy(false);
-    if (e2) return setErro(/same|different/i.test(e2.message) ? "A nova senha precisa ser diferente da atual." : "Não foi possível trocar a senha. Tente uma senha mais forte.");
+    if (e2) return setErro(/same|different/i.test(e2.message) ? "A nova senha precisa ser diferente da atual." : /pwned|leaked|weak|easy/i.test(e2.message) ? "Essa senha é fraca ou já apareceu em vazamentos. Escolha outra." : "Não foi possível trocar a senha. Tente outra senha.");
     setAtual(""); setNova(""); setConf(""); setMsg("Senha alterada com sucesso.");
   }
   return (
@@ -158,7 +158,7 @@ function TrocarSenha({ perfil }) {
       <label>Senha atual<input type="password" value={atual} onChange={e => setAtual(e.target.value)} autoComplete="current-password" /></label>
       <label>Nova senha<input type="password" value={nova} onChange={e => setNova(e.target.value)} autoComplete="new-password" /></label>
       <label>Repita a nova senha<input type="password" value={conf} onChange={e => setConf(e.target.value)} autoComplete="new-password" /></label>
-      <p className="muted" style={{ margin: 0 }}>Mínimo de 8 caracteres, com letras e números.</p>
+      <p className="muted" style={{ margin: 0 }}>Mínimo de 8 caracteres, com letra minúscula, maiúscula e número. Senhas conhecidas de vazamentos são recusadas.</p>
       {erro && <div className="err" role="alert">{erro}</div>}{msg && <div className="ok-msg" role="status">{msg}</div>}
       <div><button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Trocar senha"}</button></div>
     </form>
