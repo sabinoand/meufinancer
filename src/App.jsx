@@ -13,10 +13,10 @@ import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
 import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.19.0";
+const VERSION = "0.21.0";
 const NOVIDADES = [
-  "Privacidade (LGPD): política, termos de uso, aceite registrado e área Minha conta para baixar seus dados e pedir correção ou exclusão",
-  "Fonte própria (sem chamadas ao Google), melhor contraste, navegação por teclado e aviso sobre dados de saúde (CID)"
+  "Trocar senha em Minha conta (pede a senha atual e exige senha forte)",
+  "Segurança reforçada: acesso anônimo ao banco removido, cabeçalhos de proteção (CSP, HSTS), senha mais forte no cadastro e limite de tamanho no XML da nota"
 ];
 const PAPEIS = { pendente: "Aguardando liberação", admin: "Administrador", cel: "Cel Móveis", fornecedor: "Terceirizada", almoxarife: "Almoxarife (Cel)" };
 

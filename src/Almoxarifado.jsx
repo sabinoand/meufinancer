@@ -188,6 +188,8 @@ export default function Almoxarifado({ perfil, secao }) {
   async function escolherXml(e) {
     const file = e.target.files?.[0]; if (!file) return;
     setErro("");
+    if (file.size > 2 * 1024 * 1024) return setErro("Arquivo muito grande (máximo 2 MB).");
+    if (!/\.xml$/i.test(file.name)) return setErro("Envie um arquivo .xml.");
     try {
       const { meta, linhas } = lerXml(await file.text());
       const lns = linhas.map(l => {

@@ -131,6 +131,40 @@ export function AceiteModal({ onAceito, onSair, abrir }) {
 }
 
 const TIPOS = { correcao: "Correção de dados", exclusao: "Exclusão da conta e dos dados", acesso: "Acesso aos dados", outro: "Outro" };
+function TrocarSenha({ perfil }) {
+  const [atual, setAtual] = useState(""); const [nova, setNova] = useState(""); const [conf, setConf] = useState("");
+  const [msg, setMsg] = useState(""); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
+  async function trocar(e) {
+    e.preventDefault(); setErro(""); setMsg("");
+    if (!atual) return setErro("Informe a senha atual.");
+    if (nova.length < 8) return setErro("A nova senha precisa ter ao menos 8 caracteres.");
+    if (!/[a-zA-Z]/.test(nova) || !/\d/.test(nova)) return setErro("Use letras e números na nova senha.");
+    if (perfil.username && nova.toLowerCase().includes(perfil.username.toLowerCase())) return setErro("A senha não pode conter o seu usuário.");
+    if (nova === atual) return setErro("A nova senha precisa ser diferente da atual.");
+    if (nova !== conf) return setErro("A confirmação não confere com a nova senha.");
+    setBusy(true);
+    const { data: u } = await supabase.auth.getUser();
+    const email = u?.user?.email;
+    const { error: e1 } = await supabase.auth.signInWithPassword({ email, password: atual });
+    if (e1) { setBusy(false); return setErro("Senha atual incorreta."); }
+    const { error: e2 } = await supabase.auth.updateUser({ password: nova });
+    setBusy(false);
+    if (e2) return setErro(/same|different/i.test(e2.message) ? "A nova senha precisa ser diferente da atual." : "Não foi possível trocar a senha. Tente uma senha mais forte.");
+    setAtual(""); setNova(""); setConf(""); setMsg("Senha alterada com sucesso.");
+  }
+  return (
+    <form className="card" onSubmit={trocar} style={{ display: "grid", gap: 10 }} autoComplete="off">
+      <h2 style={{ margin: 0 }}>Trocar senha</h2>
+      <label>Senha atual<input type="password" value={atual} onChange={e => setAtual(e.target.value)} autoComplete="current-password" /></label>
+      <label>Nova senha<input type="password" value={nova} onChange={e => setNova(e.target.value)} autoComplete="new-password" /></label>
+      <label>Repita a nova senha<input type="password" value={conf} onChange={e => setConf(e.target.value)} autoComplete="new-password" /></label>
+      <p className="muted" style={{ margin: 0 }}>Mínimo de 8 caracteres, com letras e números.</p>
+      {erro && <div className="err" role="alert">{erro}</div>}{msg && <div className="ok-msg" role="status">{msg}</div>}
+      <div><button className="btn primary" disabled={busy}>{busy ? "Salvando..." : "Trocar senha"}</button></div>
+    </form>
+  );
+}
+
 export function MinhaConta({ perfil, abrir }) {
   const [pedidos, setPedidos] = useState([]); const [tipo, setTipo] = useState("correcao"); const [detalhe, setDetalhe] = useState(""); const [msg, setMsg] = useState(""); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
   const carregar = useCallback(async () => { const { data } = await supabase.from("pedidos_lgpd").select("*").eq("user_id", perfil.user_id).order("created_at", { ascending: false }); setPedidos(data || []); }, [perfil.user_id]);
@@ -154,6 +188,7 @@ export function MinhaConta({ perfil, abrir }) {
         <p className="muted">{perfil.nome} · usuário <b>{perfil.username}</b></p>
         <div className="row"><button className="btn" onClick={() => abrir("privacidade")}><ShieldCheck size={14} /> Política de Privacidade</button><button className="btn" onClick={() => abrir("termos")}><FileText size={14} /> Termos de Uso</button></div>
       </div>
+      <TrocarSenha perfil={perfil} />
       <div className="card">
         <h2>Meus dados</h2>
         <p className="muted">Baixe uma cópia dos dados da sua conta (nome, usuário, perfil, aceites e pedidos). Os dados de RH dos funcionários pertencem à empresa e ficam no módulo RH.</p>

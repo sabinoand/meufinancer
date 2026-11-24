@@ -19,7 +19,11 @@ export default function Auth({ abrirLegal }) {
     setMsg("");
     const u = clean(username);
     if (u.length < 3) return setMsg("Usuário precisa ter ao menos 3 letras/números (sem espaços).");
-    if (password.length < 6) return setMsg("A senha precisa ter ao menos 6 caracteres.");
+    if (mode !== "login") {
+      if (password.length < 8) return setMsg("A senha precisa ter ao menos 8 caracteres.");
+      if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) return setMsg("Use letras e números na senha.");
+      if (password.toLowerCase().includes(u)) return setMsg("A senha não pode conter o seu usuário.");
+    } else if (!password) return setMsg("Informe a senha.");
     setBusy(true);
     try {
       if (mode === "login") {
