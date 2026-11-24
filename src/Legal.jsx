@@ -16,7 +16,7 @@ function Privacidade() {
     <P>Sistema de gestão usado pela Cel Móveis e pelas empresas terceirizadas parceiras para controlar pedidos, estoque, almoxarifado, fichas técnicas e RH.</P>
     <H>2. Dados que guardamos</H>
     <L items={[
-      "Conta: nome, nome de usuário, empresa e perfil de acesso. A senha é protegida pelo serviço de autenticação e não fica visível para ninguém.",
+      "Conta: nome, nome de usuário, e-mail de acesso (opcional, só usado para você entrar), empresa e perfil de acesso. A senha é protegida pelo serviço de autenticação e não fica visível para ninguém.",
       "Registro de aceite: qual versão destes documentos você aceitou e quando.",
       "Dados de trabalho que você lança: pedidos, estoque, requisições, solicitações e fichas técnicas.",
       "Dados de RH lançados pela terceirizada: nome, função, datas de admissão e saída, salário, vales, cartão de ponto, atestados, exames e entrega de EPI dos funcionários."
@@ -131,6 +131,28 @@ export function AceiteModal({ onAceito, onSair, abrir }) {
 }
 
 const TIPOS = { correcao: "Correção de dados", exclusao: "Exclusão da conta e dos dados", acesso: "Acesso aos dados", outro: "Outro" };
+function EmailAcesso({ perfil }) {
+  const [email, setEmail] = useState(perfil.email_contato || ""); const [salvo, setSalvo] = useState(perfil.email_contato || "");
+  const [msg, setMsg] = useState(""); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
+  async function salvar(e) {
+    e.preventDefault(); setErro(""); setMsg("");
+    const v = email.trim().toLowerCase();
+    if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return setErro("Esse e-mail não parece válido.");
+    setBusy(true); const { error } = await supabase.rpc("salvar_email_contato", { p_email: v }); setBusy(false);
+    if (error) return setErro(error.message);
+    setEmail(v); setSalvo(v); setMsg(v ? "E-mail salvo. Agora você pode entrar com ele." : "E-mail removido. O acesso continua pelo usuário.");
+  }
+  return (
+    <form className="card" onSubmit={salvar} style={{ display: "grid", gap: 10 }}>
+      <h2 style={{ margin: 0 }}>E-mail de acesso</h2>
+      <p className="muted" style={{ margin: 0 }}>Cadastre seu e-mail para entrar no sistema com ele, em vez do usuário. O e-mail não recebe mensagens do sistema e não é verificado; serve só para você se identificar no login.</p>
+      <label>E-mail<input type="email" value={email} onChange={e => setEmail(e.target.value)} autoCapitalize="none" autoComplete="email" placeholder="voce@exemplo.com" /></label>
+      {erro && <div className="err" role="alert">{erro}</div>}{msg && <div className="ok-msg" role="status">{msg}</div>}
+      <div><button className="btn primary" disabled={busy || email.trim().toLowerCase() === salvo}>{busy ? "Salvando..." : salvo ? "Trocar e-mail" : "Salvar e-mail"}</button></div>
+    </form>
+  );
+}
+
 function TrocarSenha({ perfil }) {
   const [atual, setAtual] = useState(""); const [nova, setNova] = useState(""); const [conf, setConf] = useState("");
   const [msg, setMsg] = useState(""); const [erro, setErro] = useState(""); const [busy, setBusy] = useState(false);
@@ -185,9 +207,10 @@ export function MinhaConta({ perfil, abrir }) {
     <div style={{ display: "grid", gap: 14 }}>
       <div className="card">
         <h1>Minha conta</h1>
-        <p className="muted">{perfil.nome} · usuário <b>{perfil.username}</b></p>
+        <p className="muted">{perfil.nome} · {perfil.username ? <>usuário <b>{perfil.username}</b></> : <b>{perfil.email_contato}</b>}</p>
         <div className="row"><button className="btn" onClick={() => abrir("privacidade")}><ShieldCheck size={14} /> Política de Privacidade</button><button className="btn" onClick={() => abrir("termos")}><FileText size={14} /> Termos de Uso</button></div>
       </div>
+      <EmailAcesso perfil={perfil} />
       <TrocarSenha perfil={perfil} />
       <div className="card">
         <h2>Meus dados</h2>
@@ -211,7 +234,7 @@ export function PedidosPrivacidade() {
   const carregar = useCallback(async () => {
     const [p, u] = await Promise.all([supabase.from("pedidos_lgpd").select("*").order("created_at", { ascending: false }), supabase.from("perfis").select("user_id,nome,username")]);
     if (p.error) return setErro(p.error.message);
-    setLista(p.data); setNomes(Object.fromEntries((u.data || []).map(x => [x.user_id, `${x.nome} (${x.username})`])));
+    setLista(p.data); setNomes(Object.fromEntries((u.data || []).map(x => [x.user_id, `${x.nome} (${x.username || "convidado"})`])));
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
   async function atender(id) { const { error } = await supabase.rpc("atender_pedido_lgpd", { p_id: id }); if (error) setErro(error.message); else carregar(); }

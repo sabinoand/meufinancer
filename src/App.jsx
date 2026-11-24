@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, UserCheck, Search, ChevronRight, ShieldCheck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
+import { ConviteSenha, LinkGerado, chamarConvite } from "./Convite.jsx";
 import Calendario from "./Calendario.jsx";
 import Estoque from "./Estoque.jsx";
 import MateriaPrima from "./MateriaPrima.jsx";
@@ -13,8 +14,10 @@ import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
 import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.21.1";
+const VERSION = "0.23.0";
 const NOVIDADES = [
+  "Convite por link: o administrador cadastra nome, empresa e e-mail, gera o link e a pessoa define a própria senha. O cadastro aberto foi fechado",
+  "Entrar com e-mail: cadastre o seu em Minha conta e use usuário ou e-mail no login",
   "Trocar senha em Minha conta (pede a senha atual e exige senha forte)",
   "Segurança reforçada: acesso anônimo ao banco removido, cabeçalhos de proteção (CSP, HSTS), senha mais forte no cadastro e limite de tamanho no XML da nota"
 ];
@@ -122,15 +125,18 @@ export default function App() {
 
   useEffect(() => { carregarPerfil(); }, [carregarPerfil]);
 
+  const conviteUrl = (() => { try { const q = new URLSearchParams(window.location.search); const h = q.get("convite"); const t = q.get("tipo"); return h && (t === "invite" || t === "recovery") ? { hash: h, tipo: t } : null; } catch { return null; } })();
+
   let body;
-  if (session === undefined) body = <div className="center muted">Carregando...</div>;
+  if (conviteUrl) body = <ConviteSenha hash={conviteUrl.hash} tipo={conviteUrl.tipo} abrirLegal={setLegal} />;
+  else if (session === undefined) body = <div className="center muted">Carregando...</div>;
   else if (!session) body = <Auth abrirLegal={setLegal} />;
   else if (!perfil) body = <div className="center">{erro ? <div className="err">{erro}</div> : <span className="muted">Carregando...</span>}</div>;
   else if (!perfil.ativo) body = <Bloqueio titulo="Acesso desativado" texto="Fale com o administrador." />;
   else if (perfil.papel === "pendente") body = <Bloqueio titulo="Aguardando liberação" texto={`Olá, ${perfil.nome}! Seu cadastro foi criado. O administrador precisa liberar seu acesso.`} />;
   else body = <Shell perfil={perfil} onPerfil={carregarPerfil} abrirLegal={setLegal} />;
 
-  return <><style>{css}</style>{body}{session && perfil && aceite === false && <AceiteModal onAceito={() => setAceite(true)} onSair={() => supabase.auth.signOut()} abrir={setLegal} />}{legal && <LegalModal doc={legal} onClose={() => setLegal(null)} />}</>;
+  return <><style>{css}</style>{body}{!conviteUrl && session && perfil && aceite === false && <AceiteModal onAceito={() => setAceite(true)} onSair={() => supabase.auth.signOut()} abrir={setLegal} />}{legal && <LegalModal doc={legal} onClose={() => setLegal(null)} />}</>;
 }
 
 function Bloqueio({ titulo, texto }) {
@@ -350,8 +356,9 @@ function Empresas() {
   );
 }
 
-function Usuarios({ meuId }) {
+export function Usuarios({ meuId }) {
   const [lista, setLista] = useState([]);
+  const [form, setForm] = useState(null); const [link, setLink] = useState(null); const [busy, setBusy] = useState(false);
   const [empresas, setEmpresas] = useState([]);
   const [erro, setErro] = useState("");
 
@@ -375,20 +382,54 @@ function Usuarios({ meuId }) {
     if (error) setErro(error.message); else { setErro(""); carregar(); }
   }
 
+  async function convidar(e) {
+    e.preventDefault(); setErro(""); setBusy(true);
+    try {
+      const r = await chamarConvite({ acao: "convidar", nome: form.nome, email: form.email, papel: form.papel, empresa_id: form.empresa_id || null });
+      setLink(r); setForm(null); carregar();
+    } catch (er) { setErro(er.message); } finally { setBusy(false); }
+  }
+  async function novoLink(p) {
+    setErro(""); setBusy(true);
+    try { setLink(await chamarConvite({ acao: "redefinir", user_id: p.user_id })); } catch (er) { setErro(er.message); } finally { setBusy(false); }
+  }
+
   return (
+    <div style={{ display: "grid", gap: 14 }}>
+    {link && <LinkGerado info={link} onFechar={() => setLink(null)} />}
+    {form && (
+      <form className="card" onSubmit={convidar} style={{ display: "grid", gap: 10 }}>
+        <h2 style={{ margin: 0 }}>Convidar usuário</h2>
+        <label>Nome<input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} autoComplete="off" /></label>
+        <label>E-mail<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} autoCapitalize="none" autoComplete="off" /></label>
+        <label>Papel<select value={form.papel} onChange={e => setForm({ ...form, papel: e.target.value, empresa_id: "" })}>
+          {Object.entries(PAPEIS).filter(([k]) => k !== "pendente").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select></label>
+        {form.papel === "fornecedor" && (
+          <label>Empresa<select value={form.empresa_id} onChange={e => setForm({ ...form, empresa_id: e.target.value })}>
+            <option value="">— escolha —</option>
+            {empresas.filter(e => e.tipo === "terceirizada").map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+          </select></label>
+        )}
+        <div className="row"><button className="btn primary" disabled={busy}>{busy ? "Gerando..." : "Gerar link de acesso"}</button><button type="button" className="btn" onClick={() => setForm(null)}>Cancelar</button></div>
+      </form>
+    )}
     <div className="card">
-      <h2>Usuários</h2>
-      {erro && <div className="err">{erro}</div>}
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <h2 style={{ margin: 0 }}>Usuários</h2>
+        {!form && <button className="btn primary" onClick={() => { setLink(null); setForm({ nome: "", email: "", papel: "fornecedor", empresa_id: "" }); }}>Convidar usuário</button>}
+      </div>
+      {erro && <div className="err" role="alert">{erro}</div>}
       <div style={{ overflowX: "auto" }}>
         <table>
-          <thead><tr><th>Nome</th><th>Usuário</th><th>Papel</th><th>Empresa</th><th>Ativo</th></tr></thead>
+          <thead><tr><th>Nome</th><th>Usuário / e-mail</th><th>Papel</th><th>Empresa</th><th>Ativo</th><th>Acesso</th></tr></thead>
           <tbody>
             {lista.map(p => {
               const eu = p.user_id === meuId;
               return (
                 <tr key={p.user_id}>
                   <td>{p.nome}</td>
-                  <td>{p.username}</td>
+                  <td>{p.username || p.email_contato || "—"}</td>
                   <td>
                     <select value={p.papel} disabled={eu} onChange={e => salvar(p, { papel: e.target.value })}>
                       {Object.entries(PAPEIS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -403,12 +444,14 @@ function Usuarios({ meuId }) {
                       : (p.papel === "cel" || p.papel === "almoxarife") ? "Cel Móveis" : "—"}
                   </td>
                   <td><input type="checkbox" checked={p.ativo} disabled={eu} onChange={e => salvar(p, { ativo: e.target.checked })} /></td>
+                  <td><button className="btn sm" disabled={busy} onClick={() => novoLink(p)} title="Gera um link para a pessoa definir uma nova senha">Gerar link</button></td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   );
 }
