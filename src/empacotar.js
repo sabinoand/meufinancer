@@ -5,10 +5,19 @@
 
 const EPS = 1e-6;
 const APOIO_MIN = 0.8;
+const APOIO_MIN_FORA = 0.4; // caixa que sobra para fora da carroceria: 40% da base apoiada e o centro sobre o apoio (a fileira vizinha segura o resto)
+
+// Limites onde a caixa pode ficar. No piso vale a carroceria; da 2ª camada para cima, carroceria aberta
+// pode sobrar para os lados e para trás (cam.sobraLado / cam.sobraTras, em cm). Nunca sobra na frente (cabine).
+export function limites(cam, z) {
+  if (cam.aberta && z > EPS) return { x1: cam.c + (cam.sobraTras || 0), y0: -(cam.sobraLado || 0), y1: cam.l + (cam.sobraLado || 0) };
+  return { x1: cam.c, y0: 0, y1: cam.l };
+}
+const saiDoPiso = (cam, x, y, dx, dy) => x + dx > cam.c + EPS || y < -EPS || y + dy > cam.l + EPS;
 
 // Orientações permitidas: sempre pode girar sobre o próprio eixo (troca comprimento por largura);
 // só pode deitar a caixa se o tipo permitir.
-function orientacoes(t) {
+export function orientacoes(t) {
   const lista = t.deitar
     ? [[t.c, t.l, t.a], [t.l, t.c, t.a], [t.c, t.a, t.l], [t.a, t.c, t.l], [t.l, t.a, t.c], [t.a, t.l, t.c]]
     : [[t.c, t.l, t.a], [t.l, t.c, t.a]];
@@ -37,15 +46,19 @@ function tentar(cam, unidades, modo, pref, rnd) {
   const apoio = (x, y, z, dx, dy, tipo) => {
     if (z < EPS) return { nivel: 1, cap: tipo.max };
     let area = 0, nivel = 0, cap = tipo.max, iguais = 0, apoios = 0;
+    let ax0 = Infinity, ax1 = -Infinity, ay0 = Infinity, ay1 = -Infinity;
     for (const b of colocadas) {
       if (Math.abs(b.z + b.dz - z) > EPS) continue;
       const ox = Math.min(x + dx, b.x + b.dx) - Math.max(x, b.x);
       const oy = Math.min(y + dy, b.y + b.dy) - Math.max(y, b.y);
       if (ox > EPS && oy > EPS) {
+        ax0 = Math.min(ax0, b.x); ax1 = Math.max(ax1, b.x + b.dx); ay0 = Math.min(ay0, b.y); ay1 = Math.max(ay1, b.y + b.dy);
         apoios++; if (sentido(dx, dy) !== 0 && sentido(dx, dy) === sentido(b.dx, b.dy)) iguais++;
         area += ox * oy; nivel = Math.max(nivel, b.nivel); cap = Math.min(cap, b.cap); }
     }
-    if (area < APOIO_MIN * dx * dy - EPS) return null;
+    const fora = saiDoPiso(cam, x, y, dx, dy);
+    if (area < (fora ? APOIO_MIN_FORA : APOIO_MIN) * dx * dy - EPS) return null;
+    if (fora && (x + dx / 2 < ax0 - 0.5 || x + dx / 2 > ax1 + 0.5 || y + dy / 2 < ay0 - 0.5 || y + dy / 2 > ay1 + 0.5)) return null;
     // amarrado = cruza pelo menos uma das caixas de baixo (ou apoia em várias); alinhado com todas, tomba
     if (cam.aberta && sentido(dx, dy) !== 0 && apoios > 0 && iguais === apoios) return null;
     if (nivel + 1 > cap) return null;
@@ -60,7 +73,8 @@ function tentar(cam, unidades, modo, pref, rnd) {
       let melhor = null;
       const servem = [];
       for (const [dx, dy, dz] of ors) {
-        if (p[0] + dx > cam.c + EPS || p[1] + dy > cam.l + EPS || p[2] + dz > cam.a + EPS) continue;
+        const L = limites(cam, p[2]);
+        if (p[0] + dx > L.x1 + EPS || p[1] < L.y0 - EPS || p[1] + dy > L.y1 + EPS || p[2] + dz > cam.a + EPS) continue;
         if (sobrepoe(p[0], p[1], p[2], dx, dy, dz)) continue;
         const ap = apoio(p[0], p[1], p[2], dx, dy, u.tipo);
         if (!ap) continue;
@@ -79,10 +93,14 @@ function tentar(cam, unidades, modo, pref, rnd) {
     colocadas.push(cx);
     // novos pontos extremos; remove os que ficaram dentro de alguma caixa
     const novos = [[x + cx.dx, y, z], [x, y + cx.dy, z], [x, y, z + cx.dz]];
+    // com sobra lateral, a camada de cima também pode começar para fora da lateral
+    if (cam.aberta && cam.sobraLado > 0) novos.push([x, -cam.sobraLado, z + cx.dz]);
     // projeções para encostar nas paredes/caixas vizinhas (evita buracos)
-    pontos = pontos.concat(novos).filter(q =>
-      q[0] < cam.c - EPS && q[1] < cam.l - EPS && q[2] < cam.a - EPS &&
-      !colocadas.some(b => q[0] >= b.x - EPS && q[0] < b.x + b.dx - EPS && q[1] >= b.y - EPS && q[1] < b.y + b.dy - EPS && q[2] >= b.z - EPS && q[2] < b.z + b.dz - EPS));
+    pontos = pontos.concat(novos).filter(q => {
+      const L = limites(cam, q[2]);
+      return q[0] < L.x1 - EPS && q[1] < L.y1 - EPS && q[2] < cam.a - EPS &&
+      !colocadas.some(b => q[0] >= b.x - EPS && q[0] < b.x + b.dx - EPS && q[1] >= b.y - EPS && q[1] < b.y + b.dy - EPS && q[2] >= b.z - EPS && q[2] < b.z + b.dz - EPS);
+    });
     const vistos = new Set();
     pontos = pontos.filter(q => { const k = q.map(v => v.toFixed(3)).join(","); if (vistos.has(k)) return false; vistos.add(k); return true; });
     pontos.sort(modo === "parede" ? (a, b) => (a[0] - b[0]) || (a[2] - b[2]) || (a[1] - b[1]) : (a, b) => (a[2] - b[2]) || (a[0] - b[0]) || (a[1] - b[1]));
@@ -164,29 +182,34 @@ export function alturaApoio(colocadas, x, y, dx, dy) {
 }
 // Confere se a caixa pode ficar ali. Devolve { ok:true, caixa } ou { ok:false, motivo }.
 export function conferirCaixa(caminhao, colocadas, tipo, x, y, dx, dy, dz, zForcado) {
-  if (x < -EPS || y < -EPS || x + dx > caminhao.c + EPS || y + dy > caminhao.l + EPS) return { ok: false, motivo: "A caixa sai do caminhão." };
   const z = zForcado != null ? zForcado : alturaApoio(colocadas, x, y, dx, dy);
+  const L = limites(caminhao, z);
+  if (x < -EPS || y < L.y0 - EPS || x + dx > L.x1 + EPS || y + dy > L.y1 + EPS) return { ok: false, motivo: z > EPS && caminhao.aberta && (caminhao.sobraLado || caminhao.sobraTras) ? "Passa do que pode sobrar para fora." : "A caixa sai do caminhão." };
   if (z + dz > caminhao.a + EPS) return { ok: false, motivo: "Passa da altura do caminhão." };
   let area = 0, nivel = 0, cap = tipo.max;
+  let ax0 = Infinity, ax1 = -Infinity, ay0 = Infinity, ay1 = -Infinity;
   for (const b of colocadas) {
     if (x < b.x + b.dx - EPS && x + dx > b.x + EPS && y < b.y + b.dy - EPS && y + dy > b.y + EPS) {
       if (z < b.z + b.dz - EPS && z + dz > b.z + EPS) return { ok: false, motivo: "Já tem caixa nesse lugar." };
     }
     if (z > EPS && Math.abs(b.z + b.dz - z) < EPS) {
       const ox = Math.min(x + dx, b.x + b.dx) - Math.max(x, b.x), oy = Math.min(y + dy, b.y + b.dy) - Math.max(y, b.y);
-      if (ox > EPS && oy > EPS) { area += ox * oy; nivel = Math.max(nivel, b.nivel); cap = Math.min(cap, b.cap); }
+      if (ox > EPS && oy > EPS) { area += ox * oy; nivel = Math.max(nivel, b.nivel); cap = Math.min(cap, b.cap); ax0 = Math.min(ax0, b.x); ax1 = Math.max(ax1, b.x + b.dx); ay0 = Math.min(ay0, b.y); ay1 = Math.max(ay1, b.y + b.dy); }
     }
   }
-  if (z > EPS && area < APOIO_MIN * dx * dy - EPS) return { ok: false, motivo: "Falta apoio embaixo: a caixa ficaria no ar." };
+  const fora = saiDoPiso(caminhao, x, y, dx, dy);
+  if (z > EPS && area < (fora ? APOIO_MIN_FORA : APOIO_MIN) * dx * dy - EPS) return { ok: false, motivo: "Falta apoio embaixo: a caixa ficaria no ar." };
+  if (z > EPS && fora && (x + dx / 2 < ax0 - 0.5 || x + dx / 2 > ax1 + 0.5 || y + dy / 2 < ay0 - 0.5 || y + dy / 2 > ay1 + 0.5)) return { ok: false, motivo: "Sobra demais para fora: o centro da caixa ficaria sem apoio." };
   if (z > EPS && nivel + 1 > cap) return { ok: false, motivo: `Limite de ${cap} caixas empilhadas.` };
   return { ok: true, caixa: { x, y, z, dx, dy, dz, tipo, nivel: z > EPS ? nivel + 1 : 1, cap: Math.min(cap, tipo.max) } };
 }
 // Gruda a caixa nas paredes e nas caixas vizinhas, para não ficarem frestas ao clicar.
-export function encostar(caminhao, colocadas, x, y, dx, dy, folga = 8) {
-  const cx = [0, caminhao.c - dx], cy = [0, caminhao.l - dy];
+export function encostar(caminhao, colocadas, x, y, dx, dy, folga = 8, z = 0) {
+  const L = limites(caminhao, z);
+  const cx = [0, L.x1 - dx, caminhao.c - dx], cy = [L.y0, L.y1 - dy, 0, caminhao.l - dy];
   for (const b of colocadas) { cx.push(b.x + b.dx, b.x - dx, b.x, b.x + b.dx - dx); cy.push(b.y + b.dy, b.y - dy, b.y, b.y + b.dy - dy); }
   const perto = (v, lista) => { let m = v, d = folga + 1; for (const c of lista) { const dd = Math.abs(c - v); if (dd < d) { d = dd; m = c; } } return d <= folga ? m : v; };
-  return [Math.max(0, Math.min(caminhao.c - dx, perto(x, cx))), Math.max(0, Math.min(caminhao.l - dy, perto(y, cy)))];
+  return [Math.max(0, Math.min(L.x1 - dx, perto(x, cx))), Math.max(L.y0, Math.min(L.y1 - dy, perto(y, cy)))];
 }
 // Caixas que estão apoiadas em cima dessa (impede tirar a de baixo).
 export function temCaixaEmCima(colocadas, b) {

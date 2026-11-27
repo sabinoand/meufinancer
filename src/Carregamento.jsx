@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useDeferredValue } from "react";
 import { Plus, Pencil, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { planejar, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
+import { planejar, orientacoes, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
 
 const num = (v) => parseFloat(String(v).replace(",", "."));
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: d });
@@ -63,30 +63,41 @@ function escurece(hex, f) {
 }
 
 // ---------- vista de cima de uma camada ----------
-function VistaCima({ cam, plano, tipos, camada, onClique, fantasma }) {
-  const W = cam.comp_cm, H = cam.larg_cm;
+function VistaCima({ cam, plano, tipos, camada, ponteiro, fantasma, sel, marq }) {
+  const W = cam.comp_cm, H = cam.larg_cm, sl = cam.sobraLado || 0, st = cam.sobraTras || 0;
   const pad = 14, fs = Math.max(8, Math.min(H / 7, W / 40));
+  const arrasto = useRef(false);
+  const pos = (e) => { const sv = e.currentTarget; const pt = sv.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); return [q.x, q.y]; };
+  const eventos = ponteiro ? {
+    onPointerDown: (e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); arrasto.current = true; ponteiro.down(...pos(e)); },
+    onPointerMove: (e) => { if (arrasto.current) ponteiro.move(...pos(e)); },
+    onPointerUp: (e) => { if (arrasto.current) { arrasto.current = false; ponteiro.up(...pos(e)); } },
+    onPointerCancel: () => { arrasto.current = false; },
+  } : {};
+  const selecionada = (b) => !!sel && sel.includes(b);
   return (
-    <svg viewBox={`${-pad} ${-pad - fs} ${W + pad * 2} ${H + pad * 2 + fs * 2}`} role="img" aria-label={`Vista de cima, camada ${camada}`}
-      style={onClique ? { cursor: "crosshair" } : undefined}
-      onClick={onClique ? (e) => { const sv = e.currentTarget; const pt = sv.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); onClique(q.x, q.y); } : undefined}>
-      <text x="0" y={-fs * 0.4} fontSize={fs} fill="#5a6478">◀ cabine</text>
-      <text x={W} y={-fs * 0.4} fontSize={fs} fill="#5a6478" textAnchor="end">porta ▶</text>
+    <svg viewBox={`${-pad} ${-pad - fs - sl} ${W + st + pad * 2} ${H + sl * 2 + pad * 2 + fs * 2}`} role="img" aria-label={`Vista de cima, camada ${camada}`}
+      style={ponteiro ? { cursor: "crosshair", touchAction: "none", userSelect: "none", WebkitUserSelect: "none" } : undefined} {...eventos}>
+      <text x="0" y={-fs * 0.4 - sl} fontSize={fs} fill="#5a6478">◀ cabine</text>
+      <text x={W + st} y={-fs * 0.4 - sl} fontSize={fs} fill="#5a6478" textAnchor="end">porta ▶</text>
+      {(sl > 0 || st > 0) && <rect x="0" y={-sl} width={W + st} height={H + sl * 2} fill="none" stroke="#b6bfd0" strokeWidth={Math.max(0.8, W / 600)} strokeDasharray={`${W / 70} ${W / 110}`} pointerEvents="none" />}
       <rect x="0" y="0" width={W} height={H} fill="#f1f4fa" stroke="#4a5367" strokeWidth={Math.max(1, W / 400)} />
       {plano.caixas.filter(b => b.nivel < camada).map(b => (
-        <rect key={"f" + b.seq} x={b.x} y={b.y} width={b.dx} height={b.dy} fill="#dde2ec" stroke="#c3cad8" strokeWidth={Math.max(0.5, W / 900)} />
+        <rect key={"f" + b.seq} x={b.x} y={b.y} width={b.dx} height={b.dy} fill="#dde2ec" stroke={selecionada(b) ? "#f97316" : "#c3cad8"} strokeWidth={selecionada(b) ? Math.max(1.5, W / 250) : Math.max(0.5, W / 900)} />
       ))}
       {plano.caixas.filter(b => b.nivel === camada).map(b => {
         const cor = corDe(tipos, b.tipo.id);
         const t = Math.min(b.dx, b.dy) * 0.38;
+        const s = selecionada(b);
         return (
           <g key={b.seq}>
-            <rect x={b.x} y={b.y} width={b.dx} height={b.dy} fill={cor} fillOpacity="0.85" stroke="#fff" strokeWidth={Math.max(0.6, W / 700)} />
-            <text x={b.x + b.dx / 2} y={b.y + b.dy / 2} fontSize={Math.max(5, t)} fill="#fff" textAnchor="middle" dominantBaseline="central" fontWeight="700">{b.seq}</text>
+            <rect x={b.x} y={b.y} width={b.dx} height={b.dy} fill={cor} fillOpacity="0.85" stroke={s ? "#f97316" : "#fff"} strokeWidth={s ? Math.max(1.8, W / 200) : Math.max(0.6, W / 700)} />
+            <text x={b.x + b.dx / 2} y={b.y + b.dy / 2} fontSize={Math.max(5, t)} fill="#fff" textAnchor="middle" dominantBaseline="central" fontWeight="700" pointerEvents="none">{b.seq}</text>
           </g>
         );
       })}
-      {fantasma && <rect x={fantasma.caixa.x} y={fantasma.caixa.y} width={fantasma.caixa.dx} height={fantasma.caixa.dy} fill={fantasma.ok ? "#3b82f6" : "#ef4444"} fillOpacity="0.4" stroke={fantasma.ok ? "#1d4ed8" : "#b91c1c"} strokeWidth={Math.max(1, W / 350)} strokeDasharray={`${W / 90} ${W / 140}`} pointerEvents="none" />}
+      {fantasma && fantasma.caixas.map((c, i) => <rect key={"g" + i} x={c.x} y={c.y} width={c.dx} height={c.dy} fill={fantasma.ok ? "#3b82f6" : "#ef4444"} fillOpacity="0.4" stroke={fantasma.ok ? "#1d4ed8" : "#b91c1c"} strokeWidth={Math.max(1, W / 350)} strokeDasharray={`${W / 90} ${W / 140}`} pointerEvents="none" />)}
+      {marq && <rect x={Math.min(marq.x0, marq.x1)} y={Math.min(marq.y0, marq.y1)} width={Math.abs(marq.x1 - marq.x0)} height={Math.abs(marq.y1 - marq.y0)} fill="#f97316" fillOpacity="0.15" stroke="#ea580c" strokeWidth={Math.max(1, W / 450)} strokeDasharray={`${W / 120} ${W / 180}`} pointerEvents="none" />}
     </svg>
   );
 }
@@ -110,7 +121,7 @@ function Vista3D({ cam, plano, tipos, camada, edicao }) {
     const cx0 = cam.comp_cm / 2, cy0 = cam.larg_cm / 2, cz0 = cam.alt_cm / 2;
     const rot = (x, y, z) => { x -= cx0; y -= cy0; z -= cz0; const x1 = x * cy - y * sy, y1 = x * sy + y * cy; return { x: x1, u: z * cp + y1 * sp, d: y1 * cp - z * sp }; };
     // escala para caber o baú inteiro
-    const cantos = []; for (const x of [0, cam.comp_cm]) for (const y of [0, cam.larg_cm]) for (const z of [0, cam.alt_cm]) cantos.push(rot(x, y, z));
+    const cantos = []; for (const x of [0, cam.comp_cm + (cam.sobraTras || 0)]) for (const y of [-(cam.sobraLado || 0), cam.larg_cm + (cam.sobraLado || 0)]) for (const z of [0, cam.alt_cm]) cantos.push(rot(x, y, z));
     const minX = Math.min(...cantos.map(c => c.x)), maxX = Math.max(...cantos.map(c => c.x));
     const minU = Math.min(...cantos.map(c => c.u)), maxU = Math.max(...cantos.map(c => c.u));
     const esc = Math.min((w - 24) / (maxX - minX || 1), (h - 24) / (maxU - minU || 1));
@@ -183,45 +194,57 @@ function Vista3D({ cam, plano, tipos, camada, edicao }) {
           }
         }
         g.beginPath(); quad.forEach((p, i) => { const q = P(...p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath();
-        g.strokeStyle = papelao ? "rgba(70,45,20,.55)" : "rgba(255,255,255,.75)"; g.lineWidth = 0.8; g.stroke();
+        const selb = !!(edicao && edicao.sel && edicao.sel.includes(b));
+        g.strokeStyle = selb ? "#f97316" : papelao ? "rgba(70,45,20,.55)" : "rgba(255,255,255,.75)"; g.lineWidth = selb ? 2.4 : 0.8; g.stroke();
         acertos.current.push({ b, n: fc.n, pts: quad.map(p => P(...p)) });
       }
     };
     const lista = plano.caixas.filter(b => b.nivel <= camada).map(b => ({ b, d: rot(b.x + b.dx / 2, b.y + b.dy / 2, b.z + b.dz / 2).d }));
     lista.sort((p, q) => q.d - p.d); // mais longe primeiro
     for (const { b } of lista) desenharCaixa(b, null);
-    if (edicao && edicao.fantasma) desenharCaixa(edicao.fantasma.caixa, edicao.fantasma);
+    if (edicao && edicao.fantasma) for (const c of edicao.fantasma.caixas.slice().sort((p, q) => rot(q.x + q.dx / 2, q.y + q.dy / 2, q.z + q.dz / 2).d - rot(p.x + p.dx / 2, p.y + p.dy / 2, p.z + p.dz / 2).d)) desenharCaixa(c, edicao.fantasma);
   }, [cam, plano, tipos, camada, yaw, papelao, edicao]);
 
   useEffect(() => { desenhar(); const f = () => desenhar(); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, [desenhar]);
 
-  // clique no desenho: descobre qual face foi clicada e converte em posição dentro do baú
-  function clicar(e) {
-    if (!edicao || !edicao.ativo || !geo.current) return;
+  // descobre o que está sob o ponteiro: a caixa (face) e o ponto equivalente dentro do baú
+  function localizar(e) {
+    if (!geo.current || !ref.current) return null;
     const r = ref.current.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top, G = geo.current;
     const dentro = (pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if (((yi > sy) !== (yj > sy)) && (sx < (xj - xi) * (sy - yi) / (yj - yi) + xi)) c = !c; } return c; };
     let hit = null; for (let i = acertos.current.length - 1; i >= 0; i--) if (dentro(acertos.current[i].pts)) { hit = acertos.current[i]; break; }
     const noPlano = (zp) => { const x1 = (sx - G.ox) / G.esc, u = (G.oy - sy) / G.esc, y1 = (u - (zp - G.cz0) * G.cp) / G.sp; return [x1 * G.cy + y1 * G.sy + G.cx0, -x1 * G.sy + y1 * G.cy + G.cy0]; };
-    if (edicao.modo === "rem") { if (hit) edicao.onRemover(hit.b); return; }
-    if (!hit) { const [x, y] = noPlano(0); return edicao.onPonto(x, y, 0, 0, 0); }
-    const b = hit.b;
-    if (hit.n[2] === 1) { const z = b.z + b.dz; const [x, y] = noPlano(z); return edicao.onPonto(x, y, z, 0, 0); }
-    // lateral: ponto sobre a face, empurrado para fora, para a nova caixa ficar ao lado e na mesma altura
-    const zr = b.z + b.dz / 2, [x0, y0] = noPlano(zr), vx = -G.cp * G.sy, vy = -G.cp * G.cy;
-    let x = x0, y = y0;
-    if (hit.n[0] !== 0) { if (Math.abs(vx) < 1e-6) return; const xf = hit.n[0] > 0 ? b.x + b.dx : b.x; y = y0 + ((xf - x0) / vx) * vy; x = xf; }
-    else { if (Math.abs(vy) < 1e-6) return; const yf = hit.n[1] > 0 ? b.y + b.dy : b.y; x = x0 + ((yf - y0) / vy) * vx; y = yf; }
-    edicao.onPonto(x, y, b.z, hit.n[0], hit.n[1]);
+    let ponto = null;
+    if (!hit) { const [x, y] = noPlano(0); ponto = [x, y, 0, 0, 0]; }
+    else {
+      const b = hit.b;
+      if (hit.n[2] === 1) { const z = b.z + b.dz; const [x, y] = noPlano(z); ponto = [x, y, z, 0, 0]; }
+      else {
+        // lateral: ponto sobre a face, empurrado para fora, para a nova caixa ficar ao lado e na mesma altura
+        const zr = b.z + b.dz / 2, [x0, y0] = noPlano(zr), vx = -G.cp * G.sy, vy = -G.cp * G.cy;
+        let x = x0, y = y0;
+        if (hit.n[0] !== 0) { if (Math.abs(vx) > 1e-6) { const xf = hit.n[0] > 0 ? b.x + b.dx : b.x; y = y0 + ((xf - x0) / vx) * vy; x = xf; ponto = [x, y, b.z, hit.n[0], hit.n[1]]; } }
+        else if (Math.abs(vy) > 1e-6) { const yf = hit.n[1] > 0 ? b.y + b.dy : b.y; x = x0 + ((yf - y0) / vy) * vx; y = yf; ponto = [x, y, b.z, hit.n[0], hit.n[1]]; }
+      }
+    }
+    return { caixa: hit ? hit.b : null, ponto };
   }
+  const colocando = !!(edicao && edicao.ativo && (edicao.modo === "add" || edicao.modo === "col"));
+  function clicar(e) {
+    if (!edicao || !edicao.ativo) return;
+    const l = localizar(e); if (!l || !l.caixa) return;
+    if (edicao.modo === "rem") edicao.onRemover(l.caixa); else if (edicao.modo === "sel") edicao.onSel(l.caixa);
+  }
+  const ponteiro3d = (e, qual) => { const l = localizar(e); if (l && l.ponto) edicao.onPonteiro[qual](...l.ponto); else if (qual === "up") edicao.onPonteiro.cancel(); };
 
   return (
     <div>
       <canvas ref={ref} className="cg-3d" style={{ height: 360, cursor: edicao && edicao.ativo ? "crosshair" : undefined }} aria-label="Vista 3D do carregamento. Arraste para girar."
-        onPointerDown={(e) => { drag.current = { x: e.clientX, mov: 0 }; e.currentTarget.setPointerCapture(e.pointerId); }}
-        onPointerMove={(e) => { const d = drag.current; if (!d) return; const dx = e.clientX - d.x; d.mov += Math.abs(dx); d.x = e.clientX; if (d.mov > 4) setYaw(y => y + dx * 0.01); }}
-        onPointerUp={(e) => { const d = drag.current; drag.current = null; if (d && d.mov <= 4) clicar(e); }} onPointerCancel={() => { drag.current = null; }} />
+        onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); if (colocando) { drag.current = { ponto: true }; ponteiro3d(e, "down"); } else drag.current = { x: e.clientX, mov: 0 }; }}
+        onPointerMove={(e) => { const d = drag.current; if (!d) return; if (d.ponto) return ponteiro3d(e, "move"); const dx = e.clientX - d.x; d.mov += Math.abs(dx); d.x = e.clientX; if (d.mov > 4) setYaw(y => y + dx * 0.01); }}
+        onPointerUp={(e) => { const d = drag.current; drag.current = null; if (!d) return; if (d.ponto) return ponteiro3d(e, "up"); if (d.mov <= 4) clicar(e); }} onPointerCancel={() => { drag.current = null; }} />
       <div className="row" style={{ marginTop: 8 }}>
-        <span className="muted">Arraste para girar</span>
+        <span className="muted">{colocando ? "Gire por aqui:" : "Arraste para girar"}</span>
         <input type="range" min="-3.15" max="3.15" step="0.05" value={yaw} onChange={(e) => setYaw(Number(e.target.value))} aria-label="Girar o carregamento" style={{ flex: 1, minWidth: 120, padding: 0 }} />
         <button type="button" className="btn sm" onClick={() => setYaw(-0.6)}>Voltar</button>
         <button type="button" className="btn sm" onClick={() => setPapelao(v => !v)}>{papelao ? "Ver colorido" : "Ver caixa de papelão"}</button>
@@ -251,10 +274,17 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const [editando, setEditando] = useState(false);
   const [desfazer, setDesfazer] = useState([]);
   const [tipoAdd, setTipoAdd] = useState("");
-  const [girar, setGirar] = useState(false);
+  const [ori, setOri] = useState(0);   // posição da caixa: gira 90° e, se o tipo deixa, deita
   const [msgEd, setMsgEd] = useState("");
-  const [pend, setPend] = useState(null);          // posição escolhida, ainda não confirmada (caixa transparente)
-  const [modoEd, setModoEd] = useState("add");     // add = colocar caixa, rem = tirar caixa
+  const [pend, setPend] = useState(null);          // posição sob o ponteiro enquanto arrasta (caixa transparente)
+  const [modoEd, setModoEd] = useState("add");     // add = colocar caixa, sel = selecionar, col = colar, rem = tirar caixa
+  const [sel, setSel] = useState([]);              // caixas selecionadas
+  const [copia, setCopia] = useState(null);        // grupo copiado (posições relativas)
+  const [copiaOrg, setCopiaOrg] = useState(null);  // onde o grupo estava (a colagem "gruda" nessa linha)
+  const [marq, setMarq] = useState(null);          // retângulo de seleção (vista de cima)
+  const marqRef = useRef(null);
+  const arr = useRef(false);                       // ponteiro apertado, arrastando
+  const cancelou = useRef(false);
   const [abertoId, setAbertoId] = useState(null);   // carregamento salvo que está aberto
 
   const carregar = useCallback(async () => {
@@ -276,7 +306,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const tiposP = useMemo(() => tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, limiteCam), deitar: t.pode_deitar })), [tipos, limiteCam]);
   const pedido = useMemo(() => itens.map(i => ({ tipoId: i.tipoId, qtd: Math.floor(num(i.qtd)) })).filter(i => i.tipoId && i.qtd > 0), [itens]);
   const pedidoAdiado = useDeferredValue(pedido); // o cálculo pesado não trava a digitação
-  const camPlan = useMemo(() => cam && ({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria" }), [cam]);
+  const camPlan = useMemo(() => cam && ({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria", sobraLado: cam.tipo === "carroceria" ? Number(cam.sobra_lado_cm || 0) : 0, sobraTras: cam.tipo === "carroceria" ? Number(cam.sobra_tras_cm || 0) : 0 }), [cam]);
   const planoAuto = useMemo(() => {
     if (!cam || !pedidoAdiado.length) return null;
     return planejar(camPlan, tiposP, pedidoAdiado);
@@ -284,7 +314,8 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const plano = useMemo(() => manual && camPlan ? resumir(camPlan, tiposP, pedido, manual) : planoAuto, [manual, camPlan, tiposP, pedido, planoAuto]);
   const aberta = !!cam && cam.tipo === "carroceria";
   const planoAlt = plano ? plano.caixas.reduce((m, b) => Math.max(m, b.z + b.dz), 0) : 100;
-  const camP = cam && { comp_cm: Number(cam.comp_cm), larg_cm: Number(cam.larg_cm), alt_cm: aberta ? Math.max(100, Math.round(planoAlt)) : Number(cam.alt_cm), tipo: cam.tipo || "bau" };
+  const camP = cam && { comp_cm: Number(cam.comp_cm), larg_cm: Number(cam.larg_cm), alt_cm: aberta ? Math.max(100, Math.round(planoAlt)) : Number(cam.alt_cm), tipo: cam.tipo || "bau", sobraLado: camPlan.sobraLado, sobraTras: camPlan.sobraTras };
+  const larguraCarga = plano && plano.caixas.length ? Math.max(...plano.caixas.map(b => b.y + b.dy)) - Math.min(...plano.caixas.map(b => b.y)) : 0;
   const camadaEf = plano ? Math.min(Math.max(1, camada), Math.max(1, plano.niveis) + (editando ? 1 : 0)) : 1;
   const camada3d = todas && plano ? plano.niveis : camadaEf;
   const naoCabem = plano ? plano.porTipo.filter(p => p.cabem < p.pedido) : [];
@@ -292,8 +323,8 @@ export default function Carregamento({ perfil, secao, irPara }) {
 
   // ---------- cadastros ----------
   function abrirCam(c) {
-    setF(c ? { id: c.id, nome: c.nome, comp: String(c.comp_cm).replace(".", ","), larg: String(c.larg_cm).replace(".", ","), alt: String(c.alt_cm).replace(".", ","), obs: c.observacao || "", tipo: c.tipo || "bau", cat: c.categoria || "", pilha: String(c.max_pilha || 3) }
-           : { nome: "", comp: "", larg: "", alt: "", obs: "", tipo: "bau", cat: "", pilha: "3" });
+    setF(c ? { id: c.id, nome: c.nome, comp: String(c.comp_cm).replace(".", ","), larg: String(c.larg_cm).replace(".", ","), alt: String(c.alt_cm).replace(".", ","), obs: c.observacao || "", tipo: c.tipo || "bau", cat: c.categoria || "", pilha: String(c.max_pilha || 3), sl: String(c.sobra_lado_cm || 0).replace(".", ","), st: String(c.sobra_tras_cm || 0).replace(".", ",") }
+           : { nome: "", comp: "", larg: "", alt: "", obs: "", tipo: "bau", cat: "", pilha: "3", sl: "0", st: "0" });
     setErro(""); setModal("cam");
   }
   async function salvarCam(e) {
@@ -303,8 +334,10 @@ export default function Carregamento({ perfil, secao, irPara }) {
     if (!f.nome.trim()) return setErro("Dê um nome para o caminhão.");
     if (!(c > 0 && l > 0 && a > 0)) return setErro(ab ? "Informe comprimento e largura da carroceria, em centímetros." : "Informe comprimento, largura e altura, em centímetros.");
     if (ab && !(p >= 1 && p <= 30)) return setErro("Informe quantas caixas podem ser empilhadas (de 1 a 30).");
+    const sl = ab ? (num(f.sl) || 0) : 0, st = ab ? (num(f.st) || 0) : 0;
+    if (sl < 0 || sl > 100 || st < 0 || st > 200) return setErro("A sobra para fora vai de 0 a 100 cm nos lados e de 0 a 200 cm atrás.");
     setBusy(true);
-    const dados = { nome: f.nome.trim(), comp_cm: c, larg_cm: l, alt_cm: a, observacao: f.obs.trim() || null, tipo: f.tipo, categoria: f.cat || null, max_pilha: ab ? p : null };
+    const dados = { nome: f.nome.trim(), comp_cm: c, larg_cm: l, alt_cm: a, observacao: f.obs.trim() || null, tipo: f.tipo, categoria: f.cat || null, max_pilha: ab ? p : null, sobra_lado_cm: sl, sobra_tras_cm: st };
     const { error } = f.id ? await supabase.from("caminhoes").update(dados).eq("id", f.id) : await supabase.from("caminhoes").insert({ ...dados, empresa_id: perfil.empresa_id });
     setBusy(false);
     if (error) return setErro(error.message);
@@ -342,15 +375,39 @@ export default function Carregamento({ perfil, secao, irPara }) {
   // ---------- edição manual do carregamento ----------
   const tAdd = tiposP.find(q => q.id === tipoAdd) || null;
   function tipoPadrao() { return (pedido.find(p => p.tipoId && manual && manual.filter(c => c.tipo.id === p.tipoId).length < p.qtd) || pedido[0] || {}).tipoId || (tiposP[0] && tiposP[0].id) || ""; }
-  // caixa transparente: onde ficaria a caixa se o clique fosse confirmado
-  const fantasma = useMemo(() => {
-    if (!editando || !manual || !pend || !tAdd || !camPlan) return null;
-    const [dx, dy] = girar ? [tAdd.l, tAdd.c] : [tAdd.c, tAdd.l];
-    const [x1, y1] = encostar(camPlan, manual, pend.px + pend.nx * dx / 2 - dx / 2, pend.py + pend.ny * dy / 2 - dy / 2, dx, dy);
-    const r = conferirCaixa(camPlan, manual, tAdd, x1, y1, dx, dy, tAdd.a, pend.z);
-    const caixa = r.ok ? r.caixa : { x: x1, y: y1, z: pend.z != null ? pend.z : alturaApoio(manual, x1, y1, dx, dy), dx, dy, dz: tAdd.a, tipo: tAdd, nivel: 1, cap: 1 };
-    return { caixa, ok: r.ok, motivo: r.motivo };
-  }, [editando, manual, pend, tAdd, girar, camPlan]);
+  // caixa transparente: onde ficaria a caixa se o ponteiro fosse solto agora
+  const oris = tAdd ? orientacoes(tAdd) : [];
+  const oriAtual = () => oris[ori % oris.length];
+  function calcUm(p) {
+    if (!tAdd || !camPlan || !manual) return null;
+    const [dx, dy, dz] = oriAtual();
+    const ex = p.px + p.nx * dx / 2 - dx / 2, ey = p.py + p.ny * dy / 2 - dy / 2;
+    const zE = p.z != null ? p.z : alturaApoio(manual, ex, ey, dx, dy);
+    const [x1, y1] = encostar(camPlan, manual, ex, ey, dx, dy, 8, zE);
+    const r = conferirCaixa(camPlan, manual, tAdd, x1, y1, dx, dy, dz, p.z);
+    const caixa = r.ok ? r.caixa : { x: x1, y: y1, z: p.z != null ? p.z : alturaApoio(manual, x1, y1, dx, dy), dx, dy, dz, tipo: tAdd, nivel: 1, cap: 1 };
+    return { caixas: [caixa], ok: r.ok, motivo: r.motivo };
+  }
+  // grupo copiado: mantém a forma, só muda o lugar; cada caixa é conferida com as anteriores
+  function calcGrupo(p) {
+    if (!copia || !copia.length || !camPlan || !manual) return null;
+    const W = Math.max(...copia.map(b => b.rx + b.dx)), D = Math.max(...copia.map(b => b.ry + b.dy));
+    let [ox, oy] = encostar(camPlan, manual, p.px - W / 2, p.py - D / 2, W, D, 8, copia.some(b => b.rz > 0.001) ? 1 : 0);
+    if (copiaOrg && Math.abs(oy - copiaOrg.y) < 30) oy = copiaOrg.y; // mesma linha de onde foi copiado: cola reto, só andando no comprimento
+    const ord = copia.slice().sort((a, b) => a.rz - b.rz || a.rx - b.rx || a.ry - b.ry);
+    const rz0 = ord[0].rz;
+    let base = 0; for (const b of ord) if (Math.abs(b.rz - rz0) < 0.001) base = Math.max(base, alturaApoio(manual, ox + b.rx, oy + b.ry, b.dx, b.dy));
+    const acc = manual.slice(), caixas = []; let ok = true, motivo = "";
+    for (const b of ord) {
+      const z = base + b.rz - rz0;
+      const r = conferirCaixa(camPlan, acc, b.tipo, ox + b.rx, oy + b.ry, b.dx, b.dy, b.dz, z);
+      if (r.ok) { acc.push(r.caixa); caixas.push(r.caixa); }
+      else { if (ok) { ok = false; motivo = r.motivo; } caixas.push({ x: ox + b.rx, y: oy + b.ry, z, dx: b.dx, dy: b.dy, dz: b.dz, tipo: b.tipo, nivel: 1, cap: 1 }); }
+    }
+    return { caixas, ok, motivo };
+  }
+  const calc = (p) => modoEd === "col" ? calcGrupo(p) : calcUm(p);
+  const fantasma = useMemo(() => (editando && manual && pend && (modoEd === "add" || modoEd === "col")) ? calc(pend) : null, [editando, manual, pend, modoEd, tAdd, ori, camPlan, copia, copiaOrg]); // eslint-disable-line
   function comecarEdicao() {
     if (!planoAuto && !manual) return;
     if (!manual) setManual(planoAuto.caixas.map(b => ({ ...b })));
@@ -370,36 +427,64 @@ export default function Carregamento({ perfil, secao, irPara }) {
     if (temCaixaEmCima(manual, b)) return setMsgEd("Tem caixa em cima dessa. Tire primeiro as de cima.");
     aplicar(manual.filter(q => q !== b)); setMsgEd(`Caixa ${b.tipo.nome} removida.`);
   }
-  function confirmarPosicao() {
-    if (!fantasma || !fantasma.ok) return;
-    aplicar([...manual, fantasma.caixa]); setCamada(fantasma.caixa.nivel); setPend(null);
-    setMsgEd(`Caixa ${tAdd.nome} colocada na camada ${fantasma.caixa.nivel}.`);
+  // ----- ponteiro: arrastar para posicionar; soltar coloca -----
+  const nivelMax = (cs) => cs.reduce((m, c) => Math.max(m, c.nivel), 1);
+  function ptDown(px, py, nx = 0, ny = 0, z = null) {
+    if (modoEd === "add" && !tAdd) return setMsgEd("Escolha o tipo de caixa para adicionar.");
+    if (modoEd === "col" && !copia) return;
+    cancelou.current = false; arr.current = true; setPend({ px, py, nx, ny, z }); setMsgEd("");
   }
-  // clique na vista de cima (camada escolhida)
-  function cliqueVista(x, y) {
-    if (!editando || !manual) return;
-    if (x < 0 || y < 0 || x > camPlan.c || y > camPlan.l) return; // clique fora do caminhão
-    if (modoEd === "rem") {
-      const b = manual.find(q => q.nivel === camadaEf && x >= q.x && x <= q.x + q.dx && y >= q.y && y <= q.y + q.dy);
-      return b ? removerCaixa(b) : undefined;
-    }
-    if (!tAdd) return setMsgEd("Escolha o tipo de caixa para adicionar.");
-    setPend({ px: x, py: y, nx: 0, ny: 0, z: null }); setMsgEd("");
+  function ptMove(px, py, nx = 0, ny = 0, z = null) { if (arr.current) setPend({ px, py, nx, ny, z }); }
+  function ptUp(px, py, nx = 0, ny = 0, z = null) {
+    const ia = arr.current; arr.current = false; setPend(null);
+    if (!ia || cancelou.current) { cancelou.current = false; return; }
+    const f = calc({ px, py, nx, ny, z }); if (!f) return;
+    if (!f.ok) return setMsgEd(f.motivo);
+    aplicar([...manual, ...f.caixas]); setCamada(nivelMax(f.caixas));
+    setMsgEd(modoEd === "col" ? `${f.caixas.length} caixa${f.caixas.length === 1 ? "" : "s"} colada${f.caixas.length === 1 ? "" : "s"}. Arraste de novo para colar mais.` : `Caixa ${tAdd.nome} colocada na camada ${nivelMax(f.caixas)}.`);
   }
-  // clique na vista 3D: z já vem da face clicada (chão, topo de uma caixa ou lateral)
-  function ponto3d(x, y, z, nx, ny) {
-    if (!tAdd) return setMsgEd("Escolha o tipo de caixa para adicionar.");
-    if (!nx && !ny && (x < -5 || y < -5 || x > camPlan.c + 5 || y > camPlan.l + 5)) return;
-    setPend({ px: x, py: y, nx, ny, z }); setMsgEd("");
+  const ptCancel = () => { arr.current = false; setPend(null); };
+  const selValida = sel.filter(b => manual && manual.includes(b));
+  const alternarSel = (b) => setSel(v => v.includes(b) ? v.filter(q => q !== b) : [...v, b]);
+  function copiar() {
+    if (!selValida.length) return setMsgEd("Selecione as caixas primeiro.");
+    const mx = Math.min(...selValida.map(b => b.x)), my = Math.min(...selValida.map(b => b.y)), mz = Math.min(...selValida.map(b => b.z));
+    setCopiaOrg({ x: mx, y: my });
+    setCopia(selValida.map(b => ({ rx: b.x - mx, ry: b.y - my, rz: b.z - mz, dx: b.dx, dy: b.dy, dz: b.dz, tipo: b.tipo })));
+    setModoEd("col"); setPend(null); setMsgEd("");
   }
-  // Enter confirma, Esc cancela a caixa transparente
+  function excluirSel() {
+    if (!selValida.length) return;
+    aplicar(manual.filter(b => !selValida.includes(b))); setSel([]); setMsgEd(`${selValida.length} caixa${selValida.length === 1 ? "" : "s"} removida${selValida.length === 1 ? "" : "s"}.`);
+  }
+  const caixaNo = (x, y) => { const l = manual.filter(q => q.nivel === camadaEf && x >= q.x && x <= q.x + q.dx && y >= q.y && y <= q.y + q.dy); return l[0] || null; };
+  // vista de cima: um só conjunto de eventos que muda conforme o modo
+  const ponteiro2d = {
+    down: (x, y) => {
+      if (modoEd === "add" || modoEd === "col") return ptDown(x, y);
+      if (modoEd === "sel") { arr.current = true; marqRef.current = { x0: x, y0: y, x1: x, y1: y }; setMarq(marqRef.current); return; }
+      const b = caixaNo(x, y); if (b) removerCaixa(b);
+    },
+    move: (x, y) => {
+      if (!arr.current) return;
+      if (modoEd === "sel" && marqRef.current) { marqRef.current = { ...marqRef.current, x1: x, y1: y }; setMarq(marqRef.current); }
+      else if (modoEd === "add" || modoEd === "col") ptMove(x, y);
+    },
+    up: (x, y) => {
+      if (modoEd === "add" || modoEd === "col") return ptUp(x, y);
+      if (modoEd !== "sel") return;
+      const m = marqRef.current; arr.current = false; marqRef.current = null; setMarq(null);
+      if (!m) return;
+      if (Math.abs(m.x1 - m.x0) < 4 && Math.abs(m.y1 - m.y0) < 4) { const b = caixaNo(x, y); if (b) alternarSel(b); return; }
+      const [xa, xb, ya, yb] = [Math.min(m.x0, m.x1), Math.max(m.x0, m.x1), Math.min(m.y0, m.y1), Math.max(m.y0, m.y1)];
+      setSel(manual.filter(q => q.x + q.dx / 2 >= xa && q.x + q.dx / 2 <= xb && q.y + q.dy / 2 >= ya && q.y + q.dy / 2 <= yb));
+    },
+  };
+  const ponteiro3d = { down: (x, y, z, nx, ny) => ptDown(x, y, nx, ny, z), move: (x, y, z, nx, ny) => ptMove(x, y, nx, ny, z), up: (x, y, z, nx, ny) => ptUp(x, y, nx, ny, z), cancel: ptCancel };
+  // Esc cancela o que está sendo arrastado
   useEffect(() => {
     if (!pend) return;
-    const f = (e) => {
-      const t = e.target && e.target.tagName;
-      if (e.key === "Escape") setPend(null);
-      else if (e.key === "Enter" && t !== "INPUT" && t !== "SELECT" && t !== "BUTTON" && t !== "TEXTAREA") { e.preventDefault(); confirmarPosicao(); }
-    };
+    const f = (e) => { if (e.key === "Escape") { cancelou.current = true; arr.current = false; setPend(null); } };
     window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f);
   });
   const layoutSalvar = () => manual ? manual.map(b => ({ t: b.tipo.id, x: +b.x.toFixed(1), y: +b.y.toFixed(1), z: +b.z.toFixed(1), dx: b.dx, dy: b.dy, dz: b.dz, n: b.nivel, c: b.cap })) : null;
@@ -482,6 +567,12 @@ export default function Carregamento({ perfil, secao, irPara }) {
             ? <label>Quantas caixas empilhar, no máximo<input inputMode="numeric" value={f.pilha} onChange={e => setF({ ...f, pilha: e.target.value })} placeholder="Ex.: 3" />
                 <span className="muted">Carroceria aberta não tem teto: o que limita a altura é a pilha de caixas.</span></label>
             : <label>Altura (cm)<input inputMode="decimal" value={f.alt} onChange={e => setF({ ...f, alt: e.target.value })} placeholder="Ex.: 260" /></label>}
+          {f.tipo === "carroceria" && (
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+              <label>Sobra para os lados (cm, cada lado)<input inputMode="decimal" value={f.sl} onChange={e => setF({ ...f, sl: e.target.value })} placeholder="Ex.: 13" /></label>
+              <label>Sobra atrás (cm)<input inputMode="decimal" value={f.st} onChange={e => setF({ ...f, st: e.target.value })} placeholder="Ex.: 0" /></label>
+              <span className="muted" style={{ gridColumn: "1 / -1" }}>Quanto a carga pode passar para fora da carroceria a partir da 2ª camada. 0 = não pode sobrar. Atenção ao limite legal de largura com carga (2,60 m).</span>
+            </div>)}
           <label>Observação (opcional)<input value={f.obs} onChange={e => setF({ ...f, obs: e.target.value })} maxLength={300} /></label>
           {erro && <div className="err">{erro}</div>}
           <div className="row" style={{ justifyContent: "flex-end" }}><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button><button className="btn primary" disabled={busy}>Salvar</button></div>
@@ -538,7 +629,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
         {tiposVazios && (
           <div className="cg-aviso"><AlertTriangle size={18} /><span>Antes de planejar, cadastre {caminhoes.length === 0 ? "pelo menos um caminhão (menu Caminhões)" : ""}{caminhoes.length === 0 && tipos.length === 0 ? " e " : ""}{tipos.length === 0 ? "pelo menos um tipo de caixa (menu Tipos de caixa)" : ""}.</span></div>)}
         <label>Caminhão
-          <select value={camId} onChange={e => { setCamId(e.target.value); setManual(null); setEditando(false); setPend(null); setAbertoId(null); }}>
+          <select value={camId} onChange={e => { setCamId(e.target.value); setManual(null); setEditando(false); setPend(null); setAbertoId(null); setSel([]); setCopia(null); setCopiaOrg(null); }}>
             <option value="">Escolha o caminhão…</option>
             {caminhoes.map(c => <option key={c.id} value={c.id}>{c.nome} — {descCam(c)} · {medCam(c)}</option>)}
           </select></label>
@@ -586,11 +677,14 @@ export default function Carregamento({ perfil, secao, irPara }) {
               </div>
             </div>
 
+            {aberta && larguraCarga > 260.5 && <div className="cg-aviso"><AlertTriangle size={18} style={{ flex: "none" }} /><span>A carga está com <b>{fmt(larguraCarga, 0)} cm</b> de largura. O limite legal de largura, com carga, costuma ser 260 cm: confira antes de sair.</span></div>}
             {editando && (
               <div className="cg-edicao">
                 <div className="row">
                   <div className="cg-camadas" style={{ margin: 0 }}>
-                    <button className={modoEd === "add" ? "on" : ""} onClick={() => setModoEd("add")}>Adicionar caixa</button>
+                    <button className={modoEd === "add" ? "on" : ""} onClick={() => { setModoEd("add"); setPend(null); }}>Adicionar caixa</button>
+                    <button className={modoEd === "sel" ? "on" : ""} onClick={() => { setModoEd("sel"); setPend(null); }}>Selecionar</button>
+                    <button className={modoEd === "col" ? "on" : ""} disabled={!copia} onClick={() => { setModoEd("col"); setPend(null); }}>Colar{copia ? ` (${copia.length})` : ""}</button>
                     <button className={modoEd === "rem" ? "on" : ""} onClick={() => { setModoEd("rem"); setPend(null); }}>Remover caixa</button>
                   </div>
                   <button type="button" className="btn sm" disabled={!desfazer.length} onClick={desfazerUltima}>Desfazer</button>
@@ -598,16 +692,23 @@ export default function Carregamento({ perfil, secao, irPara }) {
                 {modoEd === "add" && (
                   <div className="row" style={{ marginTop: 8 }}>
                     <label style={{ flex: 1, minWidth: 180 }}>Caixa para adicionar
-                      <select value={tipoAdd} onChange={e => setTipoAdd(e.target.value)}>{tiposP.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></label>
-                    <button type="button" className="btn sm" onClick={() => setGirar(v => !v)}>Girar 90° ({girar ? "atravessada" : "no sentido normal"})</button>
+                      <select value={tipoAdd} onChange={e => { setTipoAdd(e.target.value); setOri(0); }}>{tiposP.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></label>
+                    {oris.length > 0 && <button type="button" className="btn sm" onClick={() => setOri(v => (v + 1) % oris.length)}>{oris.length > 2 ? "Girar ou deitar" : "Girar 90°"}: {oris[ori % oris.length].map(v => fmt(v, 1)).join(" × ")} cm</button>}
                   </div>)}
-                <p className="muted" style={{ margin: "6px 0 0" }}>{modoEd === "add" ? "Clique onde quer a caixa: ela aparece transparente. Clique em outro lugar para mudar e confirme quando estiver certo." : "Clique numa caixa para tirá-la."}</p>
-                {modoEd === "add" && pend && fantasma && (
+                {modoEd === "sel" && (
                   <div className="row" style={{ marginTop: 8 }}>
-                    <button type="button" className="btn primary sm" disabled={!fantasma.ok} onClick={confirmarPosicao}>Confirmar posição</button>
-                    <button type="button" className="btn sm" onClick={() => setPend(null)}>Cancelar</button>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: fantasma.ok ? "#1d4ed8" : "#b91c1c" }} role="status">{fantasma.ok ? `Cabe na camada ${fantasma.caixa.nivel}. Enter confirma, Esc cancela.` : fantasma.motivo}</span>
+                    <b style={{ fontSize: 14 }}>{selValida.length} selecionada{selValida.length === 1 ? "" : "s"}</b>
+                    <button type="button" className="btn sm" onClick={() => setSel(manual.slice())}>Selecionar tudo</button>
+                    <button type="button" className="btn sm" disabled={!selValida.length} onClick={() => setSel([])}>Limpar</button>
+                    <button type="button" className="btn primary sm" disabled={!selValida.length} onClick={copiar}>Copiar</button>
+                    <button type="button" className="btn sm" disabled={!selValida.length} onClick={excluirSel}><Trash2 size={14} /> Excluir selecionadas</button>
                   </div>)}
+                <p className="muted" style={{ margin: "6px 0 0" }}>{
+                  modoEd === "add" ? "Arraste a caixa até o lugar e solte: ela fica transparente enquanto você arrasta (azul = cabe, vermelha = não cabe). Um clique também coloca. Esc cancela."
+                  : modoEd === "sel" ? (vista === "cima" ? "Arraste um retângulo para pegar várias caixas, ou clique numa caixa. Depois toque em Copiar." : "Clique nas caixas para marcar. Depois toque em Copiar.")
+                  : modoEd === "col" ? `Arraste o grupo de ${copia ? copia.length : 0} caixa${copia && copia.length === 1 ? "" : "s"} até o lugar e solte para colar. Pode colar quantas vezes quiser.`
+                  : "Clique numa caixa para tirá-la."}</p>
+                {pend && fantasma && <p style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600, color: fantasma.ok ? "#1d4ed8" : "#b91c1c" }} role="status">{fantasma.ok ? `Pode soltar: camada ${nivelMax(fantasma.caixas)}.` : fantasma.motivo}</p>}
                 {msgEd && !pend && <p style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600, color: "#1d4ed8" }} role="status">{msgEd}</p>}
               </div>)}
 
@@ -616,7 +717,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
                 <div className="cg-camadas">
                   {Array.from({ length: Math.max(1, plano.niveis) + (editando ? 1 : 0) }, (_, i) => i + 1).map(n => <button key={n} className={camadaEf === n ? "on" : ""} onClick={() => setCamada(n)}>Camada {n}</button>)}
                 </div>
-                <div className="cg-vista"><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} onClique={editando ? cliqueVista : undefined} fantasma={editando && modoEd === "add" ? fantasma : null} /></div>
+                <div className="cg-vista"><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} ponteiro={editando ? ponteiro2d : undefined} fantasma={editando ? fantasma : null} sel={editando ? selValida : undefined} marq={editando ? marq : null} /></div>
                 <p className="muted">Os números são a ordem de carga: comece pelo fundo, perto da cabine. As caixas cinzas são a camada de baixo.</p>
               </>
             ) : (
@@ -626,7 +727,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
                     <button className={todas ? "on" : ""} onClick={() => setTodas(true)}>Todas as camadas</button>
                     {Array.from({ length: plano.niveis - 1 }, (_, i) => i + 1).map(n => <button key={n} className={!todas && camadaEf === n ? "on" : ""} onClick={() => { setTodas(false); setCamada(n); }}>Até a camada {n}</button>)}
                   </div>)}
-                <Vista3D cam={camP} plano={plano} tipos={tiposP} camada={camada3d} edicao={editando ? { ativo: true, modo: modoEd, fantasma: modoEd === "add" ? fantasma : null, onPonto: ponto3d, onRemover: removerCaixa } : null} />
+                <Vista3D cam={camP} plano={plano} tipos={tiposP} camada={camada3d} edicao={editando ? { ativo: true, modo: modoEd, fantasma, sel: selValida, onPonteiro: ponteiro3d, onRemover: removerCaixa, onSel: alternarSel } : null} />
               </>
             )}
 

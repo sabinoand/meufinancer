@@ -15,8 +15,9 @@ import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
 import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.24.0";
+const VERSION = "0.25.0";
 const NOVIDADES = [
+  "Carregamento: arraste a caixa para posicioná-la (sem confirmar), selecione várias caixas, copie e cole fileiras, e carroceria com sobra para fora a partir da 2ª camada",
   "Novo módulo Carregamento: cadastre caminhões e tipos de caixa e veja a melhor forma de carregar, com vista de cima por camada, 3D e ordem de carga",
   "Convite por link: o administrador cadastra nome, empresa e e-mail, gera o link e a pessoa define a própria senha. O cadastro aberto foi fechado",
   "Entrar com e-mail: cadastre o seu em Minha conta e use usuário ou e-mail no login",
