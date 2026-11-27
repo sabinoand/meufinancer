@@ -16,7 +16,7 @@ function orientacoes(t) {
   return lista.filter(o => { const k = o.join("x"); if (vistas.has(k)) return false; vistas.add(k); return true; });
 }
 
-function tentar(cam, unidades, modo, pref) {
+function tentar(cam, unidades, modo, pref, rnd) {
   const colocadas = [];
   const sobrou = [];
   let pontos = [[0, 0, 0]];
@@ -58,6 +58,7 @@ function tentar(cam, unidades, modo, pref) {
     let achou = null;
     for (const p of pontos) {
       let melhor = null;
+      const servem = [];
       for (const [dx, dy, dz] of ors) {
         if (p[0] + dx > cam.c + EPS || p[1] + dy > cam.l + EPS || p[2] + dz > cam.a + EPS) continue;
         if (sobrepoe(p[0], p[1], p[2], dx, dy, dz)) continue;
@@ -65,8 +66,11 @@ function tentar(cam, unidades, modo, pref) {
         if (!ap) continue;
         // entre as orientações que servem neste ponto, a que ocupa menos comprimento e deixa a base mais larga
         const nota = pref * dx * 1000 - dy;
+        servem.push({ dx, dy, dz, ap, nota });
         if (!melhor || nota < melhor.nota) melhor = { dx, dy, dz, ap, nota };
       }
+      // nas tentativas sorteadas, às vezes cruza a caixa (mistura sentidos na mesma camada)
+      if (melhor && rnd && servem.length > 1 && rnd() < 0.3) melhor = servem[Math.floor(rnd() * servem.length)];
       if (melhor) { achou = { p, ...melhor }; break; }
     }
     if (!achou) { falhou.add(u.tipo.id); sobrou.push(u); continue; }
@@ -112,6 +116,21 @@ export function planejar(caminhao, tipos, pedido) {
     const comp = r.colocadas.reduce((m, b) => Math.max(m, b.x + b.dx), 0);
     if (!melhor || v > melhor.v + EPS || (Math.abs(v - melhor.v) <= EPS && comp < melhor.comp - EPS)) melhor = { r, v, comp };
   }
+  // Busca extra: várias tentativas com sorteio de sentido das caixas (mistura sentidos para
+  // aproveitar sobras), dentro de um limite de tempo. Só se o carregamento ainda não coube tudo.
+  if (unidades.length <= 700 && melhor.r.sobrou.length > 0) {
+    let semente = unidades.length * 7919 + Math.round(caminhao.c * 3 + caminhao.l);
+    const rnd = () => { semente = (semente + 0x6D2B79F5) | 0; let t = Math.imul(semente ^ (semente >>> 15), 1 | semente); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const ordBase = ordens[0];
+    const ini = Date.now();
+    for (let i = 0; i < 40 && Date.now() - ini < 900; i++) {
+      const modo = i % 2 ? "chao" : "parede", pref = i % 4 < 2 ? 1 : -1;
+      const r = tentar(caminhao, unidades.slice().sort(ordBase), modo, pref, rnd);
+      const v = r.colocadas.reduce((sm, b) => sm + b.dx * b.dy * b.dz, 0);
+      const comp = r.colocadas.reduce((m, b) => Math.max(m, b.x + b.dx), 0);
+      if (v > melhor.v + EPS || (Math.abs(v - melhor.v) <= EPS && comp < melhor.comp - EPS)) melhor = { r, v, comp };
+    }
+  }
   return resumir(caminhao, tipos, pedido, melhor.r.colocadas);
 }
 
@@ -144,14 +163,14 @@ export function alturaApoio(colocadas, x, y, dx, dy) {
   return z;
 }
 // Confere se a caixa pode ficar ali. Devolve { ok:true, caixa } ou { ok:false, motivo }.
-export function conferirCaixa(caminhao, colocadas, tipo, x, y, dx, dy, dz) {
+export function conferirCaixa(caminhao, colocadas, tipo, x, y, dx, dy, dz, zForcado) {
   if (x < -EPS || y < -EPS || x + dx > caminhao.c + EPS || y + dy > caminhao.l + EPS) return { ok: false, motivo: "A caixa sai do caminhão." };
-  const z = alturaApoio(colocadas, x, y, dx, dy);
+  const z = zForcado != null ? zForcado : alturaApoio(colocadas, x, y, dx, dy);
   if (z + dz > caminhao.a + EPS) return { ok: false, motivo: "Passa da altura do caminhão." };
   let area = 0, nivel = 0, cap = tipo.max;
   for (const b of colocadas) {
     if (x < b.x + b.dx - EPS && x + dx > b.x + EPS && y < b.y + b.dy - EPS && y + dy > b.y + EPS) {
-      if (z < b.z + b.dz - EPS) return { ok: false, motivo: "Já tem caixa nesse lugar." };
+      if (z < b.z + b.dz - EPS && z + dz > b.z + EPS) return { ok: false, motivo: "Já tem caixa nesse lugar." };
     }
     if (z > EPS && Math.abs(b.z + b.dz - z) < EPS) {
       const ox = Math.min(x + dx, b.x + b.dx) - Math.max(x, b.x), oy = Math.min(y + dy, b.y + b.dy) - Math.max(y, b.y);

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useDeferredValue } from "react";
 import { Plus, Pencil, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { planejar, resumir, conferirCaixa, encostar, temCaixaEmCima } from "./empacotar.js";
+import { planejar, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
 
 const num = (v) => parseFloat(String(v).replace(",", "."));
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: d });
@@ -63,7 +63,7 @@ function escurece(hex, f) {
 }
 
 // ---------- vista de cima de uma camada ----------
-function VistaCima({ cam, plano, tipos, camada, onClique }) {
+function VistaCima({ cam, plano, tipos, camada, onClique, fantasma }) {
   const W = cam.comp_cm, H = cam.larg_cm;
   const pad = 14, fs = Math.max(8, Math.min(H / 7, W / 40));
   return (
@@ -86,16 +86,19 @@ function VistaCima({ cam, plano, tipos, camada, onClique }) {
           </g>
         );
       })}
+      {fantasma && <rect x={fantasma.caixa.x} y={fantasma.caixa.y} width={fantasma.caixa.dx} height={fantasma.caixa.dy} fill={fantasma.ok ? "#3b82f6" : "#ef4444"} fillOpacity="0.4" stroke={fantasma.ok ? "#1d4ed8" : "#b91c1c"} strokeWidth={Math.max(1, W / 350)} strokeDasharray={`${W / 90} ${W / 140}`} pointerEvents="none" />}
     </svg>
   );
 }
 
 // ---------- vista 3D (canvas, sem biblioteca) ----------
-function Vista3D({ cam, plano, tipos, camada }) {
+function Vista3D({ cam, plano, tipos, camada, edicao }) {
   const ref = useRef(null);
   const [yaw, setYaw] = useState(-0.6);
   const [papelao, setPapelao] = useState(true);
   const drag = useRef(null);
+  const geo = useRef(null);      // projeção da última pintura, para transformar clique em posição no baú
+  const acertos = useRef([]);    // faces desenhadas (da mais longe para a mais perto), para saber onde clicou
   const PITCH = 0.55;
 
   const desenhar = useCallback(() => {
@@ -113,10 +116,12 @@ function Vista3D({ cam, plano, tipos, camada }) {
     const esc = Math.min((w - 24) / (maxX - minX || 1), (h - 24) / (maxU - minU || 1));
     const ox = w / 2 - ((minX + maxX) / 2) * esc, oy = h / 2 + ((minU + maxU) / 2) * esc;
     const P = (x, y, z) => { const r = rot(x, y, z); return [ox + r.x * esc, oy - r.u * esc]; };
+    geo.current = { esc, ox, oy, cy, sy, cp, sp, cx0, cy0, cz0 };
+    acertos.current = [];
     // direção para a câmera no referencial girado: (0, -cp, sp)
     const visivel = (nx, ny, nz) => { const x1 = nx * cy - ny * sy, y1 = nx * sy + ny * cy; return (y1 * -cp + nz * sp) > 0.0001; };
 
-    // contorno: baú/sider = caixa fechada; carroceria = piso com bordas baixas e linha do limite de altura
+    // contorno: baú/sider = caixa fechada; carroceria = piso com bordas baixas
     const C = (x, y, z) => P(x * cam.comp_cm, y * cam.larg_cm, z * cam.alt_cm);
     const arestas = [[[0,0,0],[1,0,0]],[[0,1,0],[1,1,0]],[[0,0,1],[1,0,1]],[[0,1,1],[1,1,1]],[[0,0,0],[0,1,0]],[[1,0,0],[1,1,0]],[[0,0,1],[0,1,1]],[[1,0,1],[1,1,1]],[[0,0,0],[0,0,1]],[[1,0,0],[1,0,1]],[[0,1,0],[0,1,1]],[[1,1,0],[1,1,1]]];
     const traco = (lista) => { g.beginPath(); for (const [a, b] of lista) { const p = C(...a), q = C(...b); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); } g.stroke(); };
@@ -142,10 +147,10 @@ function Vista3D({ cam, plano, tipos, camada }) {
     g.fillStyle = "#5a6478"; g.font = "12px system-ui"; g.textAlign = "center";
     const cab = P(0, cam.larg_cm / 2, cam.alt_cm); g.fillText("cabine", cab[0], cab[1] - 6);
 
-    const lista = plano.caixas.filter(b => b.nivel <= camada).map(b => ({ b, d: rot(b.x + b.dx / 2, b.y + b.dy / 2, b.z + b.dz / 2).d }));
-    lista.sort((p, q) => q.d - p.d); // mais longe primeiro
     const KRAFT = "#c8a06a";
-    for (const { b } of lista) {
+    const poli = (pts, fill) => { g.beginPath(); pts.forEach((p, i) => { const q = P(...p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); g.fillStyle = fill; g.fill(); };
+    // fantasma = caixa ainda não confirmada: desenhada transparente (azul se cabe, vermelha se não cabe)
+    const desenharCaixa = (b, fantasma) => {
       const cor = corDe(tipos, b.tipo.id);
       const { x, y, z, dx, dy, dz } = b;
       // cada face: origem + dois vetores; sub(u0,u1,v0,v1) devolve um retângulo dentro dela
@@ -157,10 +162,16 @@ function Vista3D({ cam, plano, tipos, camada }) {
         { n: [0, 1, 0], f: 0.85, o: [x, y + dy, z], a: [dx, 0, 0], e: [0, 0, dz] },
       ];
       const sub = (fc, u0, u1, v0, v1) => [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(([u, v]) => fc.o.map((o, k) => o + fc.a[k] * u + fc.e[k] * v));
-      const poli = (pts, fill) => { g.beginPath(); pts.forEach((p, i) => { const q = P(...p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); g.fillStyle = fill; g.fill(); };
       for (const fc of faces) {
         if (!visivel(...fc.n)) continue;
-        poli(sub(fc, 0, 1, 0, 1), escurece(papelao ? KRAFT : cor, fc.f));
+        const quad = sub(fc, 0, 1, 0, 1);
+        if (fantasma) {
+          poli(quad, (fantasma.ok ? "rgba(59,130,246," : "rgba(239,68,68,") + (0.28 + (fc.f - 0.72) * 0.6) + ")");
+          g.beginPath(); quad.forEach((p, i) => { const q = P(...p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath();
+          g.strokeStyle = fantasma.ok ? "#1d4ed8" : "#b91c1c"; g.lineWidth = 1.6; g.setLineDash([5, 3]); g.stroke(); g.setLineDash([]);
+          continue;
+        }
+        poli(quad, escurece(papelao ? KRAFT : cor, fc.f));
         if (papelao) {
           if (fc.topo) { // fita da caixa, no sentido do comprimento
             const fita = dx >= dy ? sub(fc, 0, 1, 0.45, 0.55) : sub(fc, 0.45, 0.55, 0, 1);
@@ -171,20 +182,44 @@ function Vista3D({ cam, plano, tipos, camada }) {
             if (larga) poli(sub(fc, 0.12, 0.88, 0.16, 0.46), escurece(cor, fc.f));
           }
         }
-        g.beginPath(); sub(fc, 0, 1, 0, 1).forEach((p, i) => { const q = P(...p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath();
+        g.beginPath(); quad.forEach((p, i) => { const q = P(...p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath();
         g.strokeStyle = papelao ? "rgba(70,45,20,.55)" : "rgba(255,255,255,.75)"; g.lineWidth = 0.8; g.stroke();
+        acertos.current.push({ b, n: fc.n, pts: quad.map(p => P(...p)) });
       }
-    }
-  }, [cam, plano, tipos, camada, yaw, papelao]);
+    };
+    const lista = plano.caixas.filter(b => b.nivel <= camada).map(b => ({ b, d: rot(b.x + b.dx / 2, b.y + b.dy / 2, b.z + b.dz / 2).d }));
+    lista.sort((p, q) => q.d - p.d); // mais longe primeiro
+    for (const { b } of lista) desenharCaixa(b, null);
+    if (edicao && edicao.fantasma) desenharCaixa(edicao.fantasma.caixa, edicao.fantasma);
+  }, [cam, plano, tipos, camada, yaw, papelao, edicao]);
 
   useEffect(() => { desenhar(); const f = () => desenhar(); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, [desenhar]);
 
+  // clique no desenho: descobre qual face foi clicada e converte em posição dentro do baú
+  function clicar(e) {
+    if (!edicao || !edicao.ativo || !geo.current) return;
+    const r = ref.current.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top, G = geo.current;
+    const dentro = (pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if (((yi > sy) !== (yj > sy)) && (sx < (xj - xi) * (sy - yi) / (yj - yi) + xi)) c = !c; } return c; };
+    let hit = null; for (let i = acertos.current.length - 1; i >= 0; i--) if (dentro(acertos.current[i].pts)) { hit = acertos.current[i]; break; }
+    const noPlano = (zp) => { const x1 = (sx - G.ox) / G.esc, u = (G.oy - sy) / G.esc, y1 = (u - (zp - G.cz0) * G.cp) / G.sp; return [x1 * G.cy + y1 * G.sy + G.cx0, -x1 * G.sy + y1 * G.cy + G.cy0]; };
+    if (edicao.modo === "rem") { if (hit) edicao.onRemover(hit.b); return; }
+    if (!hit) { const [x, y] = noPlano(0); return edicao.onPonto(x, y, 0, 0, 0); }
+    const b = hit.b;
+    if (hit.n[2] === 1) { const z = b.z + b.dz; const [x, y] = noPlano(z); return edicao.onPonto(x, y, z, 0, 0); }
+    // lateral: ponto sobre a face, empurrado para fora, para a nova caixa ficar ao lado e na mesma altura
+    const zr = b.z + b.dz / 2, [x0, y0] = noPlano(zr), vx = -G.cp * G.sy, vy = -G.cp * G.cy;
+    let x = x0, y = y0;
+    if (hit.n[0] !== 0) { if (Math.abs(vx) < 1e-6) return; const xf = hit.n[0] > 0 ? b.x + b.dx : b.x; y = y0 + ((xf - x0) / vx) * vy; x = xf; }
+    else { if (Math.abs(vy) < 1e-6) return; const yf = hit.n[1] > 0 ? b.y + b.dy : b.y; x = x0 + ((yf - y0) / vy) * vx; y = yf; }
+    edicao.onPonto(x, y, b.z, hit.n[0], hit.n[1]);
+  }
+
   return (
     <div>
-      <canvas ref={ref} className="cg-3d" style={{ height: 360 }} aria-label="Vista 3D do carregamento. Arraste para girar."
-        onPointerDown={(e) => { drag.current = e.clientX; e.currentTarget.setPointerCapture(e.pointerId); }}
-        onPointerMove={(e) => { if (drag.current == null) return; setYaw(y => y + (e.clientX - drag.current) * 0.01); drag.current = e.clientX; }}
-        onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} />
+      <canvas ref={ref} className="cg-3d" style={{ height: 360, cursor: edicao && edicao.ativo ? "crosshair" : undefined }} aria-label="Vista 3D do carregamento. Arraste para girar."
+        onPointerDown={(e) => { drag.current = { x: e.clientX, mov: 0 }; e.currentTarget.setPointerCapture(e.pointerId); }}
+        onPointerMove={(e) => { const d = drag.current; if (!d) return; const dx = e.clientX - d.x; d.mov += Math.abs(dx); d.x = e.clientX; if (d.mov > 4) setYaw(y => y + dx * 0.01); }}
+        onPointerUp={(e) => { const d = drag.current; drag.current = null; if (d && d.mov <= 4) clicar(e); }} onPointerCancel={() => { drag.current = null; }} />
       <div className="row" style={{ marginTop: 8 }}>
         <span className="muted">Arraste para girar</span>
         <input type="range" min="-3.15" max="3.15" step="0.05" value={yaw} onChange={(e) => setYaw(Number(e.target.value))} aria-label="Girar o carregamento" style={{ flex: 1, minWidth: 120, padding: 0 }} />
@@ -218,6 +253,8 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const [tipoAdd, setTipoAdd] = useState("");
   const [girar, setGirar] = useState(false);
   const [msgEd, setMsgEd] = useState("");
+  const [pend, setPend] = useState(null);          // posição escolhida, ainda não confirmada (caixa transparente)
+  const [modoEd, setModoEd] = useState("add");     // add = colocar caixa, rem = tirar caixa
   const [abertoId, setAbertoId] = useState(null);   // carregamento salvo que está aberto
 
   const carregar = useCallback(async () => {
@@ -303,31 +340,68 @@ export default function Carregamento({ perfil, secao, irPara }) {
   }
 
   // ---------- edição manual do carregamento ----------
+  const tAdd = tiposP.find(q => q.id === tipoAdd) || null;
+  function tipoPadrao() { return (pedido.find(p => p.tipoId && manual && manual.filter(c => c.tipo.id === p.tipoId).length < p.qtd) || pedido[0] || {}).tipoId || (tiposP[0] && tiposP[0].id) || ""; }
+  // caixa transparente: onde ficaria a caixa se o clique fosse confirmado
+  const fantasma = useMemo(() => {
+    if (!editando || !manual || !pend || !tAdd || !camPlan) return null;
+    const [dx, dy] = girar ? [tAdd.l, tAdd.c] : [tAdd.c, tAdd.l];
+    const [x1, y1] = encostar(camPlan, manual, pend.px + pend.nx * dx / 2 - dx / 2, pend.py + pend.ny * dy / 2 - dy / 2, dx, dy);
+    const r = conferirCaixa(camPlan, manual, tAdd, x1, y1, dx, dy, tAdd.a, pend.z);
+    const caixa = r.ok ? r.caixa : { x: x1, y: y1, z: pend.z != null ? pend.z : alturaApoio(manual, x1, y1, dx, dy), dx, dy, dz: tAdd.a, tipo: tAdd, nivel: 1, cap: 1 };
+    return { caixa, ok: r.ok, motivo: r.motivo };
+  }, [editando, manual, pend, tAdd, girar, camPlan]);
   function comecarEdicao() {
     if (!planoAuto && !manual) return;
     if (!manual) setManual(planoAuto.caixas.map(b => ({ ...b })));
-    setEditando(true); setVista("cima"); setDesfazer([]); setMsgEd("");
-    if (!tipoAdd) setTipoAdd((pedido[0] && pedido[0].tipoId) || (tiposP[0] && tiposP[0].id) || "");
+    setEditando(true); setDesfazer([]); setMsgEd(""); setPend(null); setModoEd("add");
+    if (!tipoAdd) setTipoAdd(tipoPadrao());
   }
-  function voltarAutomatico() { setManual(null); setEditando(false); setDesfazer([]); setMsgEd(""); }
+  // monta do zero, sem o cálculo automático: começa com o caminhão vazio
+  function montarManual() {
+    if (!cam) return;
+    setManual([]); setEditando(true); setDesfazer([]); setMsgEd(""); setPend(null); setModoEd("add"); setAbertoId(null); setCamada(1);
+    if (!tipoAdd) setTipoAdd(tipoPadrao());
+  }
+  function voltarAutomatico() { setManual(null); setEditando(false); setDesfazer([]); setMsgEd(""); setPend(null); }
   function aplicar(novas) { setDesfazer(h => [...h, manual]); setManual(novas); }
-  function desfazerUltima() { if (!desfazer.length) return; setManual(desfazer[desfazer.length - 1]); setDesfazer(desfazer.slice(0, -1)); setMsgEd(""); }
+  function desfazerUltima() { if (!desfazer.length) return; setManual(desfazer[desfazer.length - 1]); setDesfazer(desfazer.slice(0, -1)); setMsgEd(""); setPend(null); }
+  function removerCaixa(b) {
+    if (temCaixaEmCima(manual, b)) return setMsgEd("Tem caixa em cima dessa. Tire primeiro as de cima.");
+    aplicar(manual.filter(q => q !== b)); setMsgEd(`Caixa ${b.tipo.nome} removida.`);
+  }
+  function confirmarPosicao() {
+    if (!fantasma || !fantasma.ok) return;
+    aplicar([...manual, fantasma.caixa]); setCamada(fantasma.caixa.nivel); setPend(null);
+    setMsgEd(`Caixa ${tAdd.nome} colocada na camada ${fantasma.caixa.nivel}.`);
+  }
+  // clique na vista de cima (camada escolhida)
   function cliqueVista(x, y) {
     if (!editando || !manual) return;
     if (x < 0 || y < 0 || x > camPlan.c || y > camPlan.l) return; // clique fora do caminhão
-    const b = manual.find(q => q.nivel === camadaEf && x >= q.x && x <= q.x + q.dx && y >= q.y && y <= q.y + q.dy);
-    if (b) {
-      if (temCaixaEmCima(manual, b)) return setMsgEd("Tem caixa em cima dessa. Tire primeiro as de cima.");
-      aplicar(manual.filter(q => q !== b)); return setMsgEd(`Caixa ${b.tipo.nome} removida.`);
+    if (modoEd === "rem") {
+      const b = manual.find(q => q.nivel === camadaEf && x >= q.x && x <= q.x + q.dx && y >= q.y && y <= q.y + q.dy);
+      return b ? removerCaixa(b) : undefined;
     }
-    const t = tiposP.find(q => q.id === tipoAdd);
-    if (!t) return setMsgEd("Escolha o tipo de caixa para adicionar.");
-    const [dx, dy] = girar ? [t.l, t.c] : [t.c, t.l];
-    const [x1, y1] = encostar(camPlan, manual, x - dx / 2, y - dy / 2, dx, dy);
-    const r = conferirCaixa(camPlan, manual, t, x1, y1, dx, dy, t.a);
-    if (!r.ok) return setMsgEd(r.motivo);
-    aplicar([...manual, r.caixa]); setCamada(r.caixa.nivel); setMsgEd(`Caixa ${t.nome} adicionada na camada ${r.caixa.nivel}.`);
+    if (!tAdd) return setMsgEd("Escolha o tipo de caixa para adicionar.");
+    setPend({ px: x, py: y, nx: 0, ny: 0, z: null }); setMsgEd("");
   }
+  // clique na vista 3D: z já vem da face clicada (chão, topo de uma caixa ou lateral)
+  function ponto3d(x, y, z, nx, ny) {
+    if (!tAdd) return setMsgEd("Escolha o tipo de caixa para adicionar.");
+    if (!nx && !ny && (x < -5 || y < -5 || x > camPlan.c + 5 || y > camPlan.l + 5)) return;
+    setPend({ px: x, py: y, nx, ny, z }); setMsgEd("");
+  }
+  // Enter confirma, Esc cancela a caixa transparente
+  useEffect(() => {
+    if (!pend) return;
+    const f = (e) => {
+      const t = e.target && e.target.tagName;
+      if (e.key === "Escape") setPend(null);
+      else if (e.key === "Enter" && t !== "INPUT" && t !== "SELECT" && t !== "BUTTON" && t !== "TEXTAREA") { e.preventDefault(); confirmarPosicao(); }
+    };
+    window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f);
+  });
   const layoutSalvar = () => manual ? manual.map(b => ({ t: b.tipo.id, x: +b.x.toFixed(1), y: +b.y.toFixed(1), z: +b.z.toFixed(1), dx: b.dx, dy: b.dy, dz: b.dz, n: b.nivel, c: b.cap })) : null;
 
   // ---------- carregamentos salvos ----------
@@ -464,7 +538,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
         {tiposVazios && (
           <div className="cg-aviso"><AlertTriangle size={18} /><span>Antes de planejar, cadastre {caminhoes.length === 0 ? "pelo menos um caminhão (menu Caminhões)" : ""}{caminhoes.length === 0 && tipos.length === 0 ? " e " : ""}{tipos.length === 0 ? "pelo menos um tipo de caixa (menu Tipos de caixa)" : ""}.</span></div>)}
         <label>Caminhão
-          <select value={camId} onChange={e => { setCamId(e.target.value); setManual(null); setEditando(false); setAbertoId(null); }}>
+          <select value={camId} onChange={e => { setCamId(e.target.value); setManual(null); setEditando(false); setPend(null); setAbertoId(null); }}>
             <option value="">Escolha o caminhão…</option>
             {caminhoes.map(c => <option key={c.id} value={c.id}>{c.nome} — {descCam(c)} · {medCam(c)}</option>)}
           </select></label>
@@ -480,6 +554,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
             <button type="button" className="btn sm" aria-label="Remover linha" disabled={itens.length === 1} onClick={() => setItens(l => l.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
           </div>))}
         <button type="button" className="btn sm" onClick={() => setItens(l => [...l, { tipoId: "", qtd: "" }])}><Plus size={14} /> Outro tipo de caixa</button>
+        {cam && <button type="button" className="btn sm" style={{ marginLeft: 8 }} onClick={montarManual}><Pencil size={14} /> Montar manualmente</button>}
       </div>
 
       {plano && cam && (
@@ -503,7 +578,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
               </div>
               <div className="row">
                 {editando
-                  ? <button className="btn sm" onClick={() => { setEditando(false); setMsgEd(""); }}>Concluir edição</button>
+                  ? <button className="btn sm" onClick={() => { setEditando(false); setMsgEd(""); setPend(null); }}>Concluir edição</button>
                   : <button className="btn sm" onClick={comecarEdicao}><Pencil size={14} /> Editar carregamento</button>}
                 {manual && <button className="btn sm" onClick={voltarAutomatico}>Voltar ao automático</button>}
                 <button className="btn sm" onClick={() => window.print()}><Printer size={14} /> Imprimir</button>
@@ -511,23 +586,37 @@ export default function Carregamento({ perfil, secao, irPara }) {
               </div>
             </div>
 
+            {editando && (
+              <div className="cg-edicao">
+                <div className="row">
+                  <div className="cg-camadas" style={{ margin: 0 }}>
+                    <button className={modoEd === "add" ? "on" : ""} onClick={() => setModoEd("add")}>Adicionar caixa</button>
+                    <button className={modoEd === "rem" ? "on" : ""} onClick={() => { setModoEd("rem"); setPend(null); }}>Remover caixa</button>
+                  </div>
+                  <button type="button" className="btn sm" disabled={!desfazer.length} onClick={desfazerUltima}>Desfazer</button>
+                </div>
+                {modoEd === "add" && (
+                  <div className="row" style={{ marginTop: 8 }}>
+                    <label style={{ flex: 1, minWidth: 180 }}>Caixa para adicionar
+                      <select value={tipoAdd} onChange={e => setTipoAdd(e.target.value)}>{tiposP.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></label>
+                    <button type="button" className="btn sm" onClick={() => setGirar(v => !v)}>Girar 90° ({girar ? "atravessada" : "no sentido normal"})</button>
+                  </div>)}
+                <p className="muted" style={{ margin: "6px 0 0" }}>{modoEd === "add" ? "Clique onde quer a caixa: ela aparece transparente. Clique em outro lugar para mudar e confirme quando estiver certo." : "Clique numa caixa para tirá-la."}</p>
+                {modoEd === "add" && pend && fantasma && (
+                  <div className="row" style={{ marginTop: 8 }}>
+                    <button type="button" className="btn primary sm" disabled={!fantasma.ok} onClick={confirmarPosicao}>Confirmar posição</button>
+                    <button type="button" className="btn sm" onClick={() => setPend(null)}>Cancelar</button>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: fantasma.ok ? "#1d4ed8" : "#b91c1c" }} role="status">{fantasma.ok ? `Cabe na camada ${fantasma.caixa.nivel}. Enter confirma, Esc cancela.` : fantasma.motivo}</span>
+                  </div>)}
+                {msgEd && !pend && <p style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600, color: "#1d4ed8" }} role="status">{msgEd}</p>}
+              </div>)}
+
             {vista === "cima" ? (
               <>
                 <div className="cg-camadas">
                   {Array.from({ length: Math.max(1, plano.niveis) + (editando ? 1 : 0) }, (_, i) => i + 1).map(n => <button key={n} className={camadaEf === n ? "on" : ""} onClick={() => setCamada(n)}>Camada {n}</button>)}
                 </div>
-                {editando && (
-                  <div className="cg-edicao">
-                    <div className="row">
-                      <label style={{ flex: 1, minWidth: 180 }}>Caixa para adicionar
-                        <select value={tipoAdd} onChange={e => setTipoAdd(e.target.value)}>{tiposP.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></label>
-                      <button type="button" className="btn sm" onClick={() => setGirar(v => !v)}>Girar 90° ({girar ? "atravessada" : "no sentido normal"})</button>
-                      <button type="button" className="btn sm" disabled={!desfazer.length} onClick={desfazerUltima}>Desfazer</button>
-                    </div>
-                    <p className="muted" style={{ margin: "6px 0 0" }}>Clique num espaço vazio para colocar uma caixa. Clique numa caixa da camada para tirá-la.</p>
-                    {msgEd && <p style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600, color: "#1d4ed8" }} role="status">{msgEd}</p>}
-                  </div>)}
-                <div className="cg-vista"><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} onClique={editando ? cliqueVista : undefined} /></div>
+                <div className="cg-vista"><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} onClique={editando ? cliqueVista : undefined} fantasma={editando && modoEd === "add" ? fantasma : null} /></div>
                 <p className="muted">Os números são a ordem de carga: comece pelo fundo, perto da cabine. As caixas cinzas são a camada de baixo.</p>
               </>
             ) : (
@@ -537,7 +626,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
                     <button className={todas ? "on" : ""} onClick={() => setTodas(true)}>Todas as camadas</button>
                     {Array.from({ length: plano.niveis - 1 }, (_, i) => i + 1).map(n => <button key={n} className={!todas && camadaEf === n ? "on" : ""} onClick={() => { setTodas(false); setCamada(n); }}>Até a camada {n}</button>)}
                   </div>)}
-                <Vista3D cam={camP} plano={plano} tipos={tiposP} camada={camada3d} />
+                <Vista3D cam={camP} plano={plano} tipos={tiposP} camada={camada3d} edicao={editando ? { ativo: true, modo: modoEd, fantasma: modoEd === "add" ? fantasma : null, onPonto: ponto3d, onRemover: removerCaixa } : null} />
               </>
             )}
 
