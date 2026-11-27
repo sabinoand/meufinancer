@@ -4,6 +4,7 @@
 // e o limite de empilhamento de cada tipo é respeitado. Heurística de "pontos extremos".
 
 const EPS = 1e-6;
+const TOL = 1.5; // cm: encostar de leve numa caixa vizinha não conta como estar em cima/dentro dela
 const APOIO_MIN = 0.8;
 const APOIO_MANUAL = 0.08; // edição manual: basta uma pontinha de apoio, desde que o centro fique entre os apoios
 const APOIO_MIN_FORA = 0.4; // caixa que sobra para fora da carroceria: 40% da base apoiada e o centro sobre o apoio (a fileira vizinha segura o resto)
@@ -177,7 +178,7 @@ export function resumir(caminhao, tipos, pedido, colocadas) {
 export function alturaApoio(colocadas, x, y, dx, dy) {
   let z = 0;
   for (const b of colocadas) {
-    if (x < b.x + b.dx - EPS && x + dx > b.x + EPS && y < b.y + b.dy - EPS && y + dy > b.y + EPS) z = Math.max(z, b.z + b.dz);
+    if (x < b.x + b.dx - TOL && x + dx > b.x + TOL && y < b.y + b.dy - TOL && y + dy > b.y + TOL) z = Math.max(z, b.z + b.dz);
   }
   return z;
 }
@@ -185,12 +186,12 @@ export function alturaApoio(colocadas, x, y, dx, dy) {
 export function conferirCaixa(caminhao, colocadas, tipo, x, y, dx, dy, dz, zForcado) {
   const z = zForcado != null ? zForcado : alturaApoio(colocadas, x, y, dx, dy);
   const L = limites(caminhao, z);
-  if (x < -EPS || y < L.y0 - EPS || x + dx > L.x1 + EPS || y + dy > L.y1 + EPS) return { ok: false, motivo: z > EPS && caminhao.aberta && (caminhao.sobraLado || caminhao.sobraTras) ? "Passa do que pode sobrar para fora." : "A caixa sai do caminhão." };
+  if (x < -EPS || y < L.y0 - EPS || x + dx > L.x1 + EPS || y + dy > L.y1 + EPS) return { ok: false, motivo: z > EPS && caminhao.aberta ? (caminhao.sobraLado || caminhao.sobraTras ? "Passa do que pode sobrar para fora." : "A caixa sai da carroceria. Para deixar sobrar, defina a sobra no cadastro do caminhão.") : "A caixa sai do caminhão." };
   if (z + dz > caminhao.a + EPS) return { ok: false, motivo: "Passa da altura do caminhão." };
   let area = 0, nivel = 0, cap = tipo.max;
   let ax0 = Infinity, ax1 = -Infinity, ay0 = Infinity, ay1 = -Infinity;
   for (const b of colocadas) {
-    if (x < b.x + b.dx - EPS && x + dx > b.x + EPS && y < b.y + b.dy - EPS && y + dy > b.y + EPS) {
+    if (x < b.x + b.dx - TOL && x + dx > b.x + TOL && y < b.y + b.dy - TOL && y + dy > b.y + TOL) {
       if (z < b.z + b.dz - EPS && z + dz > b.z + EPS) return { ok: false, motivo: "Já tem caixa nesse lugar." };
     }
     if (z > EPS && Math.abs(b.z + b.dz - z) < EPS) {

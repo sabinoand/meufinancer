@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useDeferredValue } from "react";
 import { Plus, Pencil, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { planejar, orientacoes, limites, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
+import { planejar, orientacoes, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
 
 const num = (v) => parseFloat(String(v).replace(",", "."));
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: d });
@@ -414,25 +414,9 @@ export default function Carregamento({ perfil, secao, irPara }) {
     const [dx, dy, dz] = oriAtual();
     const ex = p.px + p.nx * dx / 2 - dx / 2, ey = p.py + p.ny * dy / 2 - dy / 2;
     const zE = p.z != null ? p.z : alturaApoio(manual, ex, ey, dx, dy);
-    const [x1, y1] = encostar(camPlan, manual, ex, ey, dx, dy, 8, zE);
+    const [x1, y1] = encostar(camPlan, manual, ex, ey, dx, dy, 0, zE);
     let r = conferirCaixa(camPlan, manual, tAdd, x1, y1, dx, dy, dz, p.z);
     let x = x1, y = y1;
-    if (!r.ok) {
-      // não cabe exatamente onde o ponteiro está: procura o lugar válido mais perto (encostando nas caixas vizinhas e nas paredes)
-      const R = 45, L = limites(camPlan, zE), xs = new Set([x1]), ys = new Set([y1]);
-      const pe = (set, v, c) => { if (Math.abs(v - c) <= R) set.add(Math.round(v * 100) / 100); };
-      for (const v of [0, L.x1 - dx, camPlan.c - dx]) pe(xs, v, ex);
-      for (const v of [L.y0, L.y1 - dy, 0, camPlan.l - dy]) pe(ys, v, ey);
-      for (const q of manual) { for (const v of [q.x + q.dx, q.x - dx, q.x, q.x + q.dx - dx]) pe(xs, v, ex); for (const v of [q.y + q.dy, q.y - dy, q.y, q.y + q.dy - dy]) pe(ys, v, ey); }
-      let melhor = null;
-      for (const cx of xs) for (const cy of ys) {
-        const rr = conferirCaixa(camPlan, manual, tAdd, cx, cy, dx, dy, dz, p.z);
-        if (!rr.ok) continue;
-        const d = Math.hypot(cx - ex, cy - ey);
-        if (!melhor || d < melhor.d) melhor = { d, rr, cx, cy };
-      }
-      if (melhor) { r = melhor.rr; x = melhor.cx; y = melhor.cy; }
-    }
     const caixa = r.ok ? r.caixa : { x, y, z: p.z != null ? p.z : alturaApoio(manual, x, y, dx, dy), dx, dy, dz, tipo: tAdd, nivel: 1, cap: 1 };
     return { caixas: [caixa], ok: r.ok, motivo: r.motivo };
   }
@@ -442,7 +426,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
     if (!g || !g.length || !camPlan || !lista) return null;
     const W = Math.max(...g.map(b => b.rx + b.dx)), D = Math.max(...g.map(b => b.ry + b.dy));
     const tx = mover ? mov.org.x + (p.px - mov.start.x) : p.px - W / 2, ty = mover ? mov.org.y + (p.py - mov.start.y) : p.py - D / 2;
-    let [ox, oy] = encostar(camPlan, lista, tx, ty, W, D, 8, g.some(b => b.z0 > 0.001) ? 1 : 0);
+    let [ox, oy] = encostar(camPlan, lista, tx, ty, W, D, 0, g.some(b => b.z0 > 0.001) ? 1 : 0);
     if (!mover && copiaOrg && Math.abs(oy - copiaOrg.y) < 30) oy = copiaOrg.y; // cola reto, só andando no comprimento
     const ord = g.slice().sort((a, b) => a.rz - b.rz || a.rx - b.rx || a.ry - b.ry);
     const rz0 = ord[0].rz;
