@@ -7,7 +7,7 @@ const EPS = 1e-6;
 const TOL = 1.5; // cm: encostar de leve numa caixa vizinha não conta como estar em cima/dentro dela
 const APOIO_MIN = 0.8;
 const APOIO_MANUAL = 0.08; // edição manual: basta uma pontinha de apoio; quem decide o resto é o usuário
-const APOIO_MIN_FORA = 0.4; // caixa que sobra para fora da carroceria: 40% da base apoiada e o centro sobre o apoio (a fileira vizinha segura o resto)
+const APOIO_MIN_FORA = 0.55; // cálculo automático: caixa que sobra para fora da carroceria precisa de 55% da base apoiada (no máximo 45% pendurado) e o centro sobre o apoio
 
 // Limites onde a caixa pode ficar. No piso vale a carroceria; da 2ª camada para cima, carroceria aberta
 // pode sobrar para os lados e para trás (cam.sobraLado / cam.sobraTras, em cm). Nunca sobra na frente (cabine).
