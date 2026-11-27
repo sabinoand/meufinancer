@@ -109,8 +109,9 @@ export function planejar(caminhao, tipos, pedido) {
   // ordem de carga: do fundo (cabine) para a porta, de baixo para cima
   const ordem = colocadas.slice().sort((a, b) => (a.x - b.x) || (a.z - b.z) || (a.y - b.y));
   ordem.forEach((b, i) => { b.seq = i + 1; });
-  const volCam = caminhao.c * caminhao.l * caminhao.a;
-  const volUsado = melhor.v;
+  // carroceria aberta não tem teto: mede-se pelo piso coberto; baú/sider, pelo volume
+  const volCam = caminhao.aberta ? caminhao.c * caminhao.l : caminhao.c * caminhao.l * caminhao.a;
+  const volUsado = caminhao.aberta ? colocadas.filter(b => b.z < EPS).reduce((sm, b) => sm + b.dx * b.dy, 0) : melhor.v;
   const porTipo = tipos.map(t => ({
     tipo: t,
     pedido: pedido.filter(p => p.tipoId === t.id).reduce((s, p) => s + p.qtd, 0),

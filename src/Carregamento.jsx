@@ -8,6 +8,11 @@ const fmt = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", { maximumFracti
 const fmtData = (s) => s ? s.split("-").reverse().join("/") : "";
 const hoje = () => new Date().toISOString().slice(0, 10);
 const CORES = ["#2563eb", "#16a34a", "#d97706", "#9333ea", "#dc2626", "#0891b2", "#be185d", "#65a30d", "#7c3aed", "#ca8a04"];
+const TIPOS_CAM = { bau: "Baú", sider: "Sider (lona)", carroceria: "Carroceria aberta" };
+const CATS_CAM = { vuc: "VUC", tres_quartos: "3/4", toco: "Toco", truck: "Truck", bitruck: "Bitruck", carreta: "Carreta", outro: "Outro" };
+const descCam = (c) => [TIPOS_CAM[c.tipo] || "Baú", CATS_CAM[c.categoria]].filter(Boolean).join(" · ");
+const ALT_ABERTA = 400; // altura "de enfeite" gravada na carroceria aberta; quem manda é o limite de caixas empilhadas
+const medCam = (c) => c.tipo === "carroceria" ? `${fmt(c.comp_cm, 1)} × ${fmt(c.larg_cm, 1)} cm · empilha até ${c.max_pilha || "?"}` : medidas(c);
 const medidas = (o) => `${fmt(o.comp_cm, 1)} × ${fmt(o.larg_cm, 1)} × ${fmt(o.alt_cm, 1)} cm`;
 
 const css = `
@@ -108,11 +113,25 @@ function Vista3D({ cam, plano, tipos, camada }) {
     // direção para a câmera no referencial girado: (0, -cp, sp)
     const visivel = (nx, ny, nz) => { const x1 = nx * cy - ny * sy, y1 = nx * sy + ny * cy; return (y1 * -cp + nz * sp) > 0.0001; };
 
-    // contorno do baú
-    g.strokeStyle = "#8a94a8"; g.lineWidth = 1; g.setLineDash([4, 3]);
+    // contorno: baú/sider = caixa fechada; carroceria = piso com bordas baixas e linha do limite de altura
     const C = (x, y, z) => P(x * cam.comp_cm, y * cam.larg_cm, z * cam.alt_cm);
     const arestas = [[[0,0,0],[1,0,0]],[[0,1,0],[1,1,0]],[[0,0,1],[1,0,1]],[[0,1,1],[1,1,1]],[[0,0,0],[0,1,0]],[[1,0,0],[1,1,0]],[[0,0,1],[0,1,1]],[[1,0,1],[1,1,1]],[[0,0,0],[0,0,1]],[[1,0,0],[1,0,1]],[[0,1,0],[0,1,1]],[[1,1,0],[1,1,1]]];
-    g.beginPath(); for (const [a, b] of arestas) { const p = C(...a), q = C(...b); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); } g.stroke(); g.setLineDash([]);
+    const traco = (lista) => { g.beginPath(); for (const [a, b] of lista) { const p = C(...a), q = C(...b); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); } g.stroke(); };
+    const aberta = cam.tipo === "carroceria";
+    g.strokeStyle = "#8a94a8"; g.lineWidth = 1; g.setLineDash([4, 3]);
+    if (!aberta) traco(arestas);
+    g.setLineDash([]);
+    if (aberta) {
+      // grades baixas nas laterais e na frente (40 cm) e quatro postes
+      const hb = Math.min(0.2, 40 / cam.alt_cm);
+      g.strokeStyle = "#5a6478"; g.lineWidth = 1.6;
+      traco([[[0,0,0],[1,0,0]],[[0,1,0],[1,1,0]],[[0,0,0],[0,1,0]],[[1,0,0],[1,1,0]],[[0,0,hb],[1,0,hb]],[[0,1,hb],[1,1,hb]],[[0,0,hb],[0,1,hb]],
+        [[0,0,0],[0,0,hb]],[[1,0,0],[1,0,hb]],[[0,1,0],[0,1,hb]],[[1,1,0],[1,1,hb]]]);
+      g.lineWidth = 1;
+    } else if (cam.tipo === "sider") {
+      g.strokeStyle = "#8a94a8"; g.fillStyle = "rgba(90,110,150,.07)";
+      for (const y of [0, 1]) { g.beginPath(); [[0,0],[1,0],[1,1],[0,1]].forEach(([a, b], i) => { const p = C(a, y, b); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.closePath(); g.fill(); }
+    }
     // piso
     g.fillStyle = "rgba(120,130,150,.15)"; g.beginPath();
     [[0,0],[1,0],[1,1],[0,1]].forEach(([a, b], i) => { const p = C(a, b, 0); i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }); g.closePath(); g.fill();
@@ -206,13 +225,16 @@ export default function Carregamento({ perfil, secao, irPara }) {
   useEffect(() => { setErro(""); setOk(""); }, [aba]);
 
   const cam = caminhoes.find(c => c.id === camId) || null;
-  const tiposP = useMemo(() => tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: t.max_pilha, deitar: t.pode_deitar })), [tipos]);
+  const limiteCam = cam && cam.tipo === "carroceria" ? (cam.max_pilha || 1) : 99;
+  const tiposP = useMemo(() => tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, limiteCam), deitar: t.pode_deitar })), [tipos, limiteCam]);
   const pedido = useMemo(() => itens.map(i => ({ tipoId: i.tipoId, qtd: Math.floor(num(i.qtd)) })).filter(i => i.tipoId && i.qtd > 0), [itens]);
   const plano = useMemo(() => {
     if (!cam || !pedido.length) return null;
-    return planejar({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: Number(cam.alt_cm) }, tiposP, pedido);
+    return planejar({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria" }, tiposP, pedido);
   }, [cam, tiposP, pedido]);
-  const camP = cam && { comp_cm: Number(cam.comp_cm), larg_cm: Number(cam.larg_cm), alt_cm: Number(cam.alt_cm) };
+  const aberta = !!cam && cam.tipo === "carroceria";
+  const planoAlt = plano ? plano.caixas.reduce((m, b) => Math.max(m, b.z + b.dz), 0) : 100;
+  const camP = cam && { comp_cm: Number(cam.comp_cm), larg_cm: Number(cam.larg_cm), alt_cm: aberta ? Math.max(100, Math.round(planoAlt)) : Number(cam.alt_cm), tipo: cam.tipo || "bau" };
   const camadaEf = plano ? Math.min(Math.max(1, camada), Math.max(1, plano.niveis)) : 1;
   const camada3d = todas && plano ? plano.niveis : camadaEf;
   const naoCabem = plano ? plano.porTipo.filter(p => p.cabem < p.pedido) : [];
@@ -220,17 +242,19 @@ export default function Carregamento({ perfil, secao, irPara }) {
 
   // ---------- cadastros ----------
   function abrirCam(c) {
-    setF(c ? { id: c.id, nome: c.nome, comp: String(c.comp_cm).replace(".", ","), larg: String(c.larg_cm).replace(".", ","), alt: String(c.alt_cm).replace(".", ","), obs: c.observacao || "" }
-           : { nome: "", comp: "", larg: "", alt: "", obs: "" });
+    setF(c ? { id: c.id, nome: c.nome, comp: String(c.comp_cm).replace(".", ","), larg: String(c.larg_cm).replace(".", ","), alt: String(c.alt_cm).replace(".", ","), obs: c.observacao || "", tipo: c.tipo || "bau", cat: c.categoria || "", pilha: String(c.max_pilha || 3) }
+           : { nome: "", comp: "", larg: "", alt: "", obs: "", tipo: "bau", cat: "", pilha: "3" });
     setErro(""); setModal("cam");
   }
   async function salvarCam(e) {
     e.preventDefault();
-    const [c, l, a] = [num(f.comp), num(f.larg), num(f.alt)];
+    const ab = f.tipo === "carroceria";
+    const [c, l, a, p] = [num(f.comp), num(f.larg), ab ? ALT_ABERTA : num(f.alt), Math.floor(num(f.pilha))];
     if (!f.nome.trim()) return setErro("Dê um nome para o caminhão.");
-    if (!(c > 0 && l > 0 && a > 0)) return setErro("Informe comprimento, largura e altura do baú, em centímetros.");
+    if (!(c > 0 && l > 0 && a > 0)) return setErro(ab ? "Informe comprimento e largura da carroceria, em centímetros." : "Informe comprimento, largura e altura, em centímetros.");
+    if (ab && !(p >= 1 && p <= 30)) return setErro("Informe quantas caixas podem ser empilhadas (de 1 a 30).");
     setBusy(true);
-    const dados = { nome: f.nome.trim(), comp_cm: c, larg_cm: l, alt_cm: a, observacao: f.obs.trim() || null };
+    const dados = { nome: f.nome.trim(), comp_cm: c, larg_cm: l, alt_cm: a, observacao: f.obs.trim() || null, tipo: f.tipo, categoria: f.cat || null, max_pilha: ab ? p : null };
     const { error } = f.id ? await supabase.from("caminhoes").update(dados).eq("id", f.id) : await supabase.from("caminhoes").insert({ ...dados, empresa_id: perfil.empresa_id });
     setBusy(false);
     if (error) return setErro(error.message);
@@ -303,16 +327,23 @@ export default function Carregamento({ perfil, secao, irPara }) {
       {!caminhoes.length && !carregando && <p className="muted">Nenhum caminhão cadastrado ainda.</p>}
       {caminhoes.map(c => (
         <div className="cadrow" key={c.id} onClick={() => abrirCam(c)}>
-          <div><b>{c.nome}</b><div className="muted">{medidas(c)} · {fmt(c.comp_cm * c.larg_cm * c.alt_cm / 1e6, 1)} m³</div></div>
+          <div><b>{c.nome}</b><div className="muted">{descCam(c)} · {medCam(c)}{c.tipo === "carroceria" ? "" : ` · ${fmt(c.comp_cm * c.larg_cm * c.alt_cm / 1e6, 1)} m³`}</div></div>
           <button className="btn sm" aria-label={"Excluir " + c.nome} onClick={(e) => { e.stopPropagation(); excluirCam(c); }}><Trash2 size={14} /></button>
         </div>))}
       {modal === "cam" && (
         <div className="modal-bg"><form onSubmit={salvarCam} className="card modal" style={{ display: "grid", gap: 10 }}>
           <h2>{f.id ? "Editar caminhão" : "Novo caminhão"}</h2>
+          <label>Tipo de carroceria
+            <select value={f.tipo} onChange={e => setF({ ...f, tipo: e.target.value })}>{Object.entries(TIPOS_CAM).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
+          <label>Tipo de caminhão (opcional)
+            <select value={f.cat} onChange={e => setF({ ...f, cat: e.target.value })}><option value="">Não informar</option>{Object.entries(CATS_CAM).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
           <label>Nome ou placa<input value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} maxLength={80} placeholder="Ex.: Baú 7 m – ABC1D23" autoFocus /></label>
-          <label>Comprimento do baú (cm)<input inputMode="decimal" value={f.comp} onChange={e => setF({ ...f, comp: e.target.value })} placeholder="Ex.: 700" /></label>
+          <label>{f.tipo === "carroceria" ? "Comprimento da carroceria (cm)" : "Comprimento do baú (cm)"}<input inputMode="decimal" value={f.comp} onChange={e => setF({ ...f, comp: e.target.value })} placeholder="Ex.: 700" /></label>
           <label>Largura (cm)<input inputMode="decimal" value={f.larg} onChange={e => setF({ ...f, larg: e.target.value })} placeholder="Ex.: 240" /></label>
-          <label>Altura (cm)<input inputMode="decimal" value={f.alt} onChange={e => setF({ ...f, alt: e.target.value })} placeholder="Ex.: 260" /></label>
+          {f.tipo === "carroceria"
+            ? <label>Quantas caixas empilhar, no máximo<input inputMode="numeric" value={f.pilha} onChange={e => setF({ ...f, pilha: e.target.value })} placeholder="Ex.: 3" />
+                <span className="muted">Carroceria aberta não tem teto: o que limita a altura é a pilha de caixas.</span></label>
+            : <label>Altura (cm)<input inputMode="decimal" value={f.alt} onChange={e => setF({ ...f, alt: e.target.value })} placeholder="Ex.: 260" /></label>}
           <label>Observação (opcional)<input value={f.obs} onChange={e => setF({ ...f, obs: e.target.value })} maxLength={300} /></label>
           {erro && <div className="err">{erro}</div>}
           <div className="row" style={{ justifyContent: "flex-end" }}><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button><button className="btn primary" disabled={busy}>Salvar</button></div>
@@ -371,7 +402,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
         <label>Caminhão
           <select value={camId} onChange={e => setCamId(e.target.value)}>
             <option value="">Escolha o caminhão…</option>
-            {caminhoes.map(c => <option key={c.id} value={c.id}>{c.nome} — {medidas(c)}</option>)}
+            {caminhoes.map(c => <option key={c.id} value={c.id}>{c.nome} — {descCam(c)} · {medCam(c)}</option>)}
           </select></label>
         <h3 style={{ margin: "16px 0 8px", fontSize: 15 }}>O que vai no caminhão</h3>
         {itens.map((it, i) => (
@@ -392,7 +423,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
           <div className="no-print">
             <div className="cg-resumo">
               <div><b>{plano.caixas.length} de {pedido.reduce((s, p) => s + p.qtd, 0)}</b><span>caixas cabem</span></div>
-              <div><b>{fmt(plano.ocupacao * 100, 1)}%</b><span>do volume do baú</span></div>
+              <div><b>{fmt(plano.ocupacao * 100, 1)}%</b><span>{aberta ? "do piso ocupado" : "do volume do baú"}</span></div>
               <div><b>{fmt(plano.compOcupado / 100, 2)} m</b><span>de {fmt(cam.comp_cm / 100, 2)} m ocupados</span></div>
               <div><b>{plano.niveis}</b><span>camada{plano.niveis === 1 ? "" : "s"} de altura</span></div>
             </div>
@@ -441,7 +472,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
 
           <div className="cg-print print-area">
             <h1>Carregamento — {cam.nome}</h1>
-            <p>Baú {medidas(cam)} · {plano.caixas.length} caixas · {fmt(plano.ocupacao * 100, 1)}% do volume · emitido em {fmtData(hoje())}</p>
+            <p>{descCam(cam)} {medCam(cam)} · {plano.caixas.length} caixas · {fmt(plano.ocupacao * 100, 1)}% {aberta ? "do piso" : "do volume"} · emitido em {fmtData(hoje())}</p>
             <p>{plano.porTipo.map(p => `${p.tipo.nome}: ${p.cabem}${p.cabem < p.pedido ? ` de ${p.pedido}` : ""}`).join(" · ")}</p>
             {naoCabem.length > 0 && <p><b>Não cabem:</b> {naoCabem.map(p => `${p.pedido - p.cabem} de ${p.tipo.nome}`).join(", ")}</p>}
             {Array.from({ length: plano.niveis }, (_, i) => i + 1).map(n => (
