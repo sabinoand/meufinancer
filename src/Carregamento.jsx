@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, useDeferredValue } from "react";
 import { Plus, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { planejar } from "./empacotar.js";
@@ -228,10 +228,11 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const limiteCam = cam && cam.tipo === "carroceria" ? (cam.max_pilha || 1) : 99;
   const tiposP = useMemo(() => tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, limiteCam), deitar: t.pode_deitar })), [tipos, limiteCam]);
   const pedido = useMemo(() => itens.map(i => ({ tipoId: i.tipoId, qtd: Math.floor(num(i.qtd)) })).filter(i => i.tipoId && i.qtd > 0), [itens]);
+  const pedidoAdiado = useDeferredValue(pedido); // o cálculo pesado não trava a digitação
   const plano = useMemo(() => {
-    if (!cam || !pedido.length) return null;
-    return planejar({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria" }, tiposP, pedido);
-  }, [cam, tiposP, pedido]);
+    if (!cam || !pedidoAdiado.length) return null;
+    return planejar({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria" }, tiposP, pedidoAdiado);
+  }, [cam, tiposP, pedidoAdiado]);
   const aberta = !!cam && cam.tipo === "carroceria";
   const planoAlt = plano ? plano.caixas.reduce((m, b) => Math.max(m, b.z + b.dz), 0) : 100;
   const camP = cam && { comp_cm: Number(cam.comp_cm), larg_cm: Number(cam.larg_cm), alt_cm: aberta ? Math.max(100, Math.round(planoAlt)) : Number(cam.alt_cm), tipo: cam.tipo || "bau" };

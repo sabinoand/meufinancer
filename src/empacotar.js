@@ -16,7 +16,7 @@ function orientacoes(t) {
   return lista.filter(o => { const k = o.join("x"); if (vistas.has(k)) return false; vistas.add(k); return true; });
 }
 
-function tentar(cam, unidades, modo) {
+function tentar(cam, unidades, modo, pref) {
   const colocadas = [];
   const sobrou = [];
   let pontos = [[0, 0, 0]];
@@ -31,6 +31,9 @@ function tentar(cam, unidades, modo) {
     return false;
   };
   // devolve null se não tem apoio suficiente / passa do limite; senão { nivel, cap }
+  // Carroceria aberta: caixa de cima precisa ficar "amarrada", cruzada em 90° com a de baixo,
+  // senão a pilha tomba. Caixa quadrada não tem como cruzar, então fica livre.
+  const sentido = (dx, dy) => dx === dy ? 0 : (dx > dy ? 1 : -1);
   const apoio = (x, y, z, dx, dy, tipo) => {
     if (z < EPS) return { nivel: 1, cap: tipo.max };
     let area = 0, nivel = 0, cap = tipo.max;
@@ -38,7 +41,9 @@ function tentar(cam, unidades, modo) {
       if (Math.abs(b.z + b.dz - z) > EPS) continue;
       const ox = Math.min(x + dx, b.x + b.dx) - Math.max(x, b.x);
       const oy = Math.min(y + dy, b.y + b.dy) - Math.max(y, b.y);
-      if (ox > EPS && oy > EPS) { area += ox * oy; nivel = Math.max(nivel, b.nivel); cap = Math.min(cap, b.cap); }
+      if (ox > EPS && oy > EPS) {
+        if (cam.aberta && sentido(dx, dy) !== 0 && sentido(dx, dy) === sentido(b.dx, b.dy)) return null;
+        area += ox * oy; nivel = Math.max(nivel, b.nivel); cap = Math.min(cap, b.cap); }
     }
     if (area < APOIO_MIN * dx * dy - EPS) return null;
     if (nivel + 1 > cap) return null;
@@ -57,7 +62,7 @@ function tentar(cam, unidades, modo) {
         const ap = apoio(p[0], p[1], p[2], dx, dy, u.tipo);
         if (!ap) continue;
         // entre as orientações que servem neste ponto, a que ocupa menos comprimento e deixa a base mais larga
-        const nota = dx * 1000 - dy;
+        const nota = pref * dx * 1000 - dy;
         if (!melhor || nota < melhor.nota) melhor = { dx, dy, dz, ap, nota };
       }
       if (melhor) { achou = { p, ...melhor }; break; }
@@ -99,8 +104,8 @@ export function planejar(caminhao, tipos, pedido) {
   let melhor = null;
   // "parede": monta do fundo para a porta, subindo as pilhas; "chao": completa o piso antes de empilhar.
   // Vale a que levar mais caixas; no empate, a que usa menos comprimento do baú.
-  for (const modo of ["parede", "chao"]) for (const ord of ordens) {
-    const r = tentar(caminhao, unidades.slice().sort(ord), modo);
+  for (const modo of ["parede", "chao"]) for (const ord of ordens) for (const pref of [1, -1]) {
+    const r = tentar(caminhao, unidades.slice().sort(ord), modo, pref);
     const v = r.colocadas.reduce((sm, b) => sm + b.dx * b.dy * b.dz, 0);
     const comp = r.colocadas.reduce((m, b) => Math.max(m, b.x + b.dx), 0);
     if (!melhor || v > melhor.v + EPS || (Math.abs(v - melhor.v) <= EPS && comp < melhor.comp - EPS)) melhor = { r, v, comp };
