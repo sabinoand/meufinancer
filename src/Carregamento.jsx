@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useDeferredValue } from "react";
-import { Plus, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
+import { Plus, Pencil, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { planejar } from "./empacotar.js";
+import { planejar, resumir, conferirCaixa, encostar, temCaixaEmCima } from "./empacotar.js";
 
 const num = (v) => parseFloat(String(v).replace(",", "."));
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: d });
@@ -30,6 +30,7 @@ const css = `
 .cg-vista svg{display:block;width:100%;height:auto;min-width:420px}
 .cg-3d{border:1px solid #eceef3;border-radius:12px;background:#f7f9ff;touch-action:none;cursor:grab;width:100%}
 .cg-3d:active{cursor:grabbing}
+.cg-edicao{background:#f5f8ff;border:1px solid #cdd9f5;border-radius:12px;padding:10px 12px;margin:8px 0}
 .cg-print{display:none}
 .cg-print svg{width:100%;height:auto}
 @media print{.cg-print{display:block !important}.cg-print .pag{page-break-inside:avoid;margin-bottom:14px}}
@@ -62,11 +63,13 @@ function escurece(hex, f) {
 }
 
 // ---------- vista de cima de uma camada ----------
-function VistaCima({ cam, plano, tipos, camada }) {
+function VistaCima({ cam, plano, tipos, camada, onClique }) {
   const W = cam.comp_cm, H = cam.larg_cm;
   const pad = 14, fs = Math.max(8, Math.min(H / 7, W / 40));
   return (
-    <svg viewBox={`${-pad} ${-pad - fs} ${W + pad * 2} ${H + pad * 2 + fs * 2}`} role="img" aria-label={`Vista de cima, camada ${camada}`}>
+    <svg viewBox={`${-pad} ${-pad - fs} ${W + pad * 2} ${H + pad * 2 + fs * 2}`} role="img" aria-label={`Vista de cima, camada ${camada}`}
+      style={onClique ? { cursor: "crosshair" } : undefined}
+      onClick={onClique ? (e) => { const sv = e.currentTarget; const pt = sv.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); onClique(q.x, q.y); } : undefined}>
       <text x="0" y={-fs * 0.4} fontSize={fs} fill="#5a6478">◀ cabine</text>
       <text x={W} y={-fs * 0.4} fontSize={fs} fill="#5a6478" textAnchor="end">porta ▶</text>
       <rect x="0" y="0" width={W} height={H} fill="#f1f4fa" stroke="#4a5367" strokeWidth={Math.max(1, W / 400)} />
@@ -209,6 +212,13 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
   const [carregando, setCarregando] = useState(true);
+  const [manual, setManual] = useState(null);       // caixas editadas à mão (null = cálculo automático)
+  const [editando, setEditando] = useState(false);
+  const [desfazer, setDesfazer] = useState([]);
+  const [tipoAdd, setTipoAdd] = useState("");
+  const [girar, setGirar] = useState(false);
+  const [msgEd, setMsgEd] = useState("");
+  const [abertoId, setAbertoId] = useState(null);   // carregamento salvo que está aberto
 
   const carregar = useCallback(async () => {
     const rs = await Promise.all([
@@ -229,14 +239,16 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const tiposP = useMemo(() => tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, limiteCam), deitar: t.pode_deitar })), [tipos, limiteCam]);
   const pedido = useMemo(() => itens.map(i => ({ tipoId: i.tipoId, qtd: Math.floor(num(i.qtd)) })).filter(i => i.tipoId && i.qtd > 0), [itens]);
   const pedidoAdiado = useDeferredValue(pedido); // o cálculo pesado não trava a digitação
-  const plano = useMemo(() => {
+  const camPlan = useMemo(() => cam && ({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria" }), [cam]);
+  const planoAuto = useMemo(() => {
     if (!cam || !pedidoAdiado.length) return null;
-    return planejar({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria" }, tiposP, pedidoAdiado);
-  }, [cam, tiposP, pedidoAdiado]);
+    return planejar(camPlan, tiposP, pedidoAdiado);
+  }, [cam, camPlan, tiposP, pedidoAdiado]);
+  const plano = useMemo(() => manual && camPlan ? resumir(camPlan, tiposP, pedido, manual) : planoAuto, [manual, camPlan, tiposP, pedido, planoAuto]);
   const aberta = !!cam && cam.tipo === "carroceria";
   const planoAlt = plano ? plano.caixas.reduce((m, b) => Math.max(m, b.z + b.dz), 0) : 100;
   const camP = cam && { comp_cm: Number(cam.comp_cm), larg_cm: Number(cam.larg_cm), alt_cm: aberta ? Math.max(100, Math.round(planoAlt)) : Number(cam.alt_cm), tipo: cam.tipo || "bau" };
-  const camadaEf = plano ? Math.min(Math.max(1, camada), Math.max(1, plano.niveis)) : 1;
+  const camadaEf = plano ? Math.min(Math.max(1, camada), Math.max(1, plano.niveis) + (editando ? 1 : 0)) : 1;
   const camada3d = todas && plano ? plano.niveis : camadaEf;
   const naoCabem = plano ? plano.porTipo.filter(p => p.cabem < p.pedido) : [];
   const tiposVazios = !carregando && (caminhoes.length === 0 || tipos.length === 0);
@@ -290,24 +302,75 @@ export default function Carregamento({ perfil, secao, irPara }) {
     if (error) setErro(error.message.includes("violates foreign key") ? "Esse tipo está em carregamentos salvos. Exclua esses carregamentos primeiro." : error.message); else carregar();
   }
 
+  // ---------- edição manual do carregamento ----------
+  function comecarEdicao() {
+    if (!planoAuto && !manual) return;
+    if (!manual) setManual(planoAuto.caixas.map(b => ({ ...b })));
+    setEditando(true); setVista("cima"); setDesfazer([]); setMsgEd("");
+    if (!tipoAdd) setTipoAdd((pedido[0] && pedido[0].tipoId) || (tiposP[0] && tiposP[0].id) || "");
+  }
+  function voltarAutomatico() { setManual(null); setEditando(false); setDesfazer([]); setMsgEd(""); }
+  function aplicar(novas) { setDesfazer(h => [...h, manual]); setManual(novas); }
+  function desfazerUltima() { if (!desfazer.length) return; setManual(desfazer[desfazer.length - 1]); setDesfazer(desfazer.slice(0, -1)); setMsgEd(""); }
+  function cliqueVista(x, y) {
+    if (!editando || !manual) return;
+    if (x < 0 || y < 0 || x > camPlan.c || y > camPlan.l) return; // clique fora do caminhão
+    const b = manual.find(q => q.nivel === camadaEf && x >= q.x && x <= q.x + q.dx && y >= q.y && y <= q.y + q.dy);
+    if (b) {
+      if (temCaixaEmCima(manual, b)) return setMsgEd("Tem caixa em cima dessa. Tire primeiro as de cima.");
+      aplicar(manual.filter(q => q !== b)); return setMsgEd(`Caixa ${b.tipo.nome} removida.`);
+    }
+    const t = tiposP.find(q => q.id === tipoAdd);
+    if (!t) return setMsgEd("Escolha o tipo de caixa para adicionar.");
+    const [dx, dy] = girar ? [t.l, t.c] : [t.c, t.l];
+    const [x1, y1] = encostar(camPlan, manual, x - dx / 2, y - dy / 2, dx, dy);
+    const r = conferirCaixa(camPlan, manual, t, x1, y1, dx, dy, t.a);
+    if (!r.ok) return setMsgEd(r.motivo);
+    aplicar([...manual, r.caixa]); setCamada(r.caixa.nivel); setMsgEd(`Caixa ${t.nome} adicionada na camada ${r.caixa.nivel}.`);
+  }
+  const layoutSalvar = () => manual ? manual.map(b => ({ t: b.tipo.id, x: +b.x.toFixed(1), y: +b.y.toFixed(1), z: +b.z.toFixed(1), dx: b.dx, dy: b.dy, dz: b.dz, n: b.nivel, c: b.cap })) : null;
+
   // ---------- carregamentos salvos ----------
-  function abrirSalvar() { setF({ nome: "", data: hoje(), obs: "" }); setErro(""); setModal("salvar"); }
-  async function salvarCarregamento(e) {
+  function abrirSalvar() {
+    const g = abertoId && salvos.find(x => x.id === abertoId);
+    setF(g ? { nome: g.nome, data: g.data, obs: g.observacao || "" } : { nome: "", data: hoje(), obs: "" }); setErro(""); setModal("salvar");
+  }
+  async function salvarCarregamento(e, comoNovo) {
     e.preventDefault();
     if (!f.nome.trim()) return setErro("Dê um nome para o carregamento (ex.: Entrega Cel 28/11).");
     setBusy(true);
     try {
-      const { data: g, error } = await supabase.from("carregamentos").insert({ empresa_id: perfil.empresa_id, caminhao_id: camId, nome: f.nome.trim(), data: f.data || hoje(), observacao: f.obs.trim() || null }).select().single();
-      if (error) throw error;
-      const { error: e2 } = await supabase.from("carregamento_itens").insert(pedido.map(p => ({ carregamento_id: g.id, empresa_id: perfil.empresa_id, tipo_id: p.tipoId, quantidade: p.qtd })));
-      if (e2) { await supabase.from("carregamentos").delete().eq("id", g.id); throw e2; }
-      setModal(null); setOk("Carregamento salvo."); carregar();
+      const itensSalvar = plano.porTipo.map(p => ({ tipo_id: p.tipo.id, quantidade: p.pedido }));
+      const dados = { caminhao_id: camId, nome: f.nome.trim(), data: f.data || hoje(), observacao: f.obs.trim() || null, layout: layoutSalvar() };
+      if (abertoId && !comoNovo) {
+        const { error } = await supabase.from("carregamentos").update(dados).eq("id", abertoId);
+        if (error) throw error;
+        const { error: e1 } = await supabase.from("carregamento_itens").delete().eq("carregamento_id", abertoId);
+        if (e1) throw e1;
+        const { error: e2 } = await supabase.from("carregamento_itens").insert(itensSalvar.map(i => ({ ...i, carregamento_id: abertoId, empresa_id: perfil.empresa_id })));
+        if (e2) throw e2;
+        setOk("Carregamento atualizado.");
+      } else {
+        const { data: g, error } = await supabase.from("carregamentos").insert({ ...dados, empresa_id: perfil.empresa_id }).select().single();
+        if (error) throw error;
+        const { error: e2 } = await supabase.from("carregamento_itens").insert(itensSalvar.map(i => ({ ...i, carregamento_id: g.id, empresa_id: perfil.empresa_id })));
+        if (e2) { await supabase.from("carregamentos").delete().eq("id", g.id); throw e2; }
+        setAbertoId(g.id); setOk("Carregamento salvo.");
+      }
+      setModal(null); carregar();
     } catch (er) { setErro(er.message); }
     setBusy(false);
   }
   function abrirSalvo(g) {
+    const camSalvo = caminhoes.find(c => c.id === g.caminhao_id);
+    const lim = camSalvo && camSalvo.tipo === "carroceria" ? (camSalvo.max_pilha || 1) : 99;
+    const tp = tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, lim), deitar: t.pode_deitar }));
     setCamId(g.caminhao_id);
     setItens(salvosItens.filter(i => i.carregamento_id === g.id).map(i => ({ tipoId: i.tipo_id, qtd: String(i.quantidade) })));
+    setManual(Array.isArray(g.layout) && g.layout.length
+      ? g.layout.map(l => ({ x: l.x, y: l.y, z: l.z, dx: l.dx, dy: l.dy, dz: l.dz, nivel: l.n, cap: l.c, tipo: tp.find(t => t.id === l.t) })).filter(b => b.tipo)
+      : null);
+    setEditando(false); setDesfazer([]); setMsgEd(""); setAbertoId(g.id);
     setCamada(1); setTodas(true); setErro(""); setOk("");
     irPara && irPara("plano");
   }
@@ -401,7 +464,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
         {tiposVazios && (
           <div className="cg-aviso"><AlertTriangle size={18} /><span>Antes de planejar, cadastre {caminhoes.length === 0 ? "pelo menos um caminhão (menu Caminhões)" : ""}{caminhoes.length === 0 && tipos.length === 0 ? " e " : ""}{tipos.length === 0 ? "pelo menos um tipo de caixa (menu Tipos de caixa)" : ""}.</span></div>)}
         <label>Caminhão
-          <select value={camId} onChange={e => setCamId(e.target.value)}>
+          <select value={camId} onChange={e => { setCamId(e.target.value); setManual(null); setEditando(false); setAbertoId(null); }}>
             <option value="">Escolha o caminhão…</option>
             {caminhoes.map(c => <option key={c.id} value={c.id}>{c.nome} — {descCam(c)} · {medCam(c)}</option>)}
           </select></label>
@@ -423,7 +486,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
         <div className="card" style={{ marginTop: 14 }}>
           <div className="no-print">
             <div className="cg-resumo">
-              <div><b>{plano.caixas.length} de {pedido.reduce((s, p) => s + p.qtd, 0)}</b><span>caixas cabem</span></div>
+              <div><b>{plano.caixas.length} de {plano.porTipo.reduce((sm, p) => sm + p.pedido, 0)}</b><span>caixas cabem</span></div>
               <div><b>{fmt(plano.ocupacao * 100, 1)}%</b><span>{aberta ? "do piso ocupado" : "do volume do baú"}</span></div>
               <div><b>{fmt(plano.compOcupado / 100, 2)} m</b><span>de {fmt(cam.comp_cm / 100, 2)} m ocupados</span></div>
               <div><b>{plano.niveis}</b><span>camada{plano.niveis === 1 ? "" : "s"} de altura</span></div>
@@ -432,12 +495,17 @@ export default function Carregamento({ perfil, secao, irPara }) {
               <div className="cg-aviso"><AlertTriangle size={18} /><span><b>Não cabem tudo.</b> {naoCabem.map(p => `${p.pedido - p.cabem} de ${p.tipo.nome}`).join(", ")} ficam de fora. Use outro caminhão ou divida em duas viagens.</span></div>)}
             <div className="cg-leg">{plano.porTipo.map(p => <span key={p.tipo.id}><i style={{ background: corDe(tiposP, p.tipo.id) }} />{p.tipo.nome}: {p.cabem}{p.cabem < p.pedido ? ` de ${p.pedido}` : ""}</span>)}</div>
 
+            {manual && <div className="cg-aviso" style={{ background: "#e0e7ff", color: "#3730a3" }}><span>Carregamento <b>editado à mão</b>. Mudar as quantidades acima não refaz o encaixe automático.</span></div>}
             <div className="row" style={{ justifyContent: "space-between" }}>
               <div className="cg-camadas" role="tablist" aria-label="Tipo de vista">
                 <button className={vista === "cima" ? "on" : ""} onClick={() => setVista("cima")}>Vista de cima</button>
                 <button className={vista === "3d" ? "on" : ""} onClick={() => setVista("3d")}>3D</button>
               </div>
               <div className="row">
+                {editando
+                  ? <button className="btn sm" onClick={() => { setEditando(false); setMsgEd(""); }}>Concluir edição</button>
+                  : <button className="btn sm" onClick={comecarEdicao}><Pencil size={14} /> Editar carregamento</button>}
+                {manual && <button className="btn sm" onClick={voltarAutomatico}>Voltar ao automático</button>}
                 <button className="btn sm" onClick={() => window.print()}><Printer size={14} /> Imprimir</button>
                 <button className="btn primary sm" onClick={abrirSalvar}><Save size={14} /> Salvar carregamento</button>
               </div>
@@ -446,9 +514,20 @@ export default function Carregamento({ perfil, secao, irPara }) {
             {vista === "cima" ? (
               <>
                 <div className="cg-camadas">
-                  {Array.from({ length: plano.niveis }, (_, i) => i + 1).map(n => <button key={n} className={camadaEf === n ? "on" : ""} onClick={() => setCamada(n)}>Camada {n}</button>)}
+                  {Array.from({ length: Math.max(1, plano.niveis) + (editando ? 1 : 0) }, (_, i) => i + 1).map(n => <button key={n} className={camadaEf === n ? "on" : ""} onClick={() => setCamada(n)}>Camada {n}</button>)}
                 </div>
-                <div className="cg-vista"><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} /></div>
+                {editando && (
+                  <div className="cg-edicao">
+                    <div className="row">
+                      <label style={{ flex: 1, minWidth: 180 }}>Caixa para adicionar
+                        <select value={tipoAdd} onChange={e => setTipoAdd(e.target.value)}>{tiposP.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></label>
+                      <button type="button" className="btn sm" onClick={() => setGirar(v => !v)}>Girar 90° ({girar ? "atravessada" : "no sentido normal"})</button>
+                      <button type="button" className="btn sm" disabled={!desfazer.length} onClick={desfazerUltima}>Desfazer</button>
+                    </div>
+                    <p className="muted" style={{ margin: "6px 0 0" }}>Clique num espaço vazio para colocar uma caixa. Clique numa caixa da camada para tirá-la.</p>
+                    {msgEd && <p style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600, color: "#1d4ed8" }} role="status">{msgEd}</p>}
+                  </div>)}
+                <div className="cg-vista"><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} onClique={editando ? cliqueVista : undefined} /></div>
                 <p className="muted">Os números são a ordem de carga: comece pelo fundo, perto da cabine. As caixas cinzas são a camada de baixo.</p>
               </>
             ) : (
@@ -491,7 +570,8 @@ export default function Carregamento({ perfil, secao, irPara }) {
           <label>Data<input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} /></label>
           <label>Observação (opcional)<input value={f.obs} onChange={e => setF({ ...f, obs: e.target.value })} maxLength={300} /></label>
           {erro && <div className="err">{erro}</div>}
-          <div className="row" style={{ justifyContent: "flex-end" }}><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button><button className="btn primary" disabled={busy}>Salvar</button></div>
+          <div className="row" style={{ justifyContent: "flex-end" }}><button type="button" className="btn" onClick={() => setModal(null)}>Cancelar</button>
+            {abertoId ? (<><button type="button" className="btn" disabled={busy} onClick={(e) => salvarCarregamento(e, true)}>Salvar como novo</button><button className="btn primary" disabled={busy}>Atualizar este</button></>) : <button className="btn primary" disabled={busy}>Salvar</button>}</div>
         </form></div>)}
     </div>
   );
