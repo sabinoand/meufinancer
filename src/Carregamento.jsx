@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useDeferredValue } from "react";
 import { Plus, Pencil, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { planejar, orientacoes, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
+import { planejar, planejarVarias, orientacoes, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
 
 const num = (v) => parseFloat(String(v).replace(",", "."));
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: d });
@@ -334,14 +334,17 @@ export default function Carregamento({ perfil, secao, irPara }) {
 
   const cam = caminhoes.find(c => c.id === camId) || null;
   const limiteCam = cam && cam.tipo === "carroceria" ? (cam.max_pilha || 1) : 99;
-  const tiposP = useMemo(() => tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, limiteCam), deitar: t.pode_deitar })), [tipos, limiteCam]);
+  const tiposP = useMemo(() => tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, limiteCam), deitar: t.pode_deitar, topoDeitada: !!cam && cam.tipo !== "carroceria" })), [tipos, limiteCam, cam]);
   const pedido = useMemo(() => itens.map(i => ({ tipoId: i.tipoId, qtd: Math.floor(num(i.qtd)) })).filter(i => i.tipoId && i.qtd > 0), [itens]);
   const pedidoAdiado = useDeferredValue(pedido); // o cálculo pesado não trava a digitação
   const camPlan = useMemo(() => cam && ({ c: Number(cam.comp_cm), l: Number(cam.larg_cm), a: cam.tipo === "carroceria" ? 1000 : Number(cam.alt_cm), aberta: cam.tipo === "carroceria", sobraLado: cam.tipo === "carroceria" ? Number(cam.sobra_lado_cm || 0) : 0, sobraTras: cam.tipo === "carroceria" ? Number(cam.sobra_tras_cm || 0) : 0 }), [cam]);
-  const planoAuto = useMemo(() => {
-    if (!cam || !pedidoAdiado.length) return null;
-    return planejar(camPlan, tiposP, pedidoAdiado);
+  const [opcao, setOpcao] = useState(0);
+  const opcoes = useMemo(() => {
+    if (!cam || !pedidoAdiado.length) return [];
+    return planejarVarias(camPlan, tiposP, pedidoAdiado, 4);
   }, [cam, camPlan, tiposP, pedidoAdiado]);
+  useEffect(() => { setOpcao(0); }, [opcoes]);
+  const planoAuto = opcoes.length ? opcoes[Math.min(opcao, opcoes.length - 1)].plano : null;
   const plano = useMemo(() => manual && camPlan ? resumir(camPlan, tiposP, pedido, manual) : planoAuto, [manual, camPlan, tiposP, pedido, planoAuto]);
   const aberta = !!cam && cam.tipo === "carroceria";
   const planoAlt = plano ? plano.caixas.reduce((m, b) => Math.max(m, b.z + b.dz), 0) : 100;
@@ -583,7 +586,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
   function abrirSalvo(g) {
     const camSalvo = caminhoes.find(c => c.id === g.caminhao_id);
     const lim = camSalvo && camSalvo.tipo === "carroceria" ? (camSalvo.max_pilha || 1) : 99;
-    const tp = tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, lim), deitar: t.pode_deitar }));
+    const tp = tipos.map(t => ({ id: t.id, nome: t.nome, c: Number(t.comp_cm), l: Number(t.larg_cm), a: Number(t.alt_cm), max: Math.min(t.max_pilha, lim), deitar: t.pode_deitar, topoDeitada: !!camSalvo && camSalvo.tipo !== "carroceria" }));
     setCamId(g.caminhao_id);
     setItens(salvosItens.filter(i => i.carregamento_id === g.id).map(i => ({ tipoId: i.tipo_id, qtd: String(i.quantidade) })));
     setManual(Array.isArray(g.layout) && g.layout.length
@@ -717,6 +720,13 @@ export default function Carregamento({ perfil, secao, irPara }) {
               <div><b>{fmt(plano.compOcupado / 100, 2)} m</b><span>de {fmt(cam.comp_cm / 100, 2)} m ocupados</span></div>
               <div><b>{plano.niveis}</b><span>camada{plano.niveis === 1 ? "" : "s"} de altura</span></div>
             </div>
+            {opcoes.length > 1 && !manual && (
+              <div style={{ margin: "10px 0" }}>
+                <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>Escolha a forma de carregar:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {opcoes.map((o, i) => <button key={i} type="button" className={"btn sm" + (i === Math.min(opcao, opcoes.length - 1) ? " primary" : "")} onClick={() => setOpcao(i)}>Opção {i + 1}: {o.plano.caixas.length} caixas · {o.rotulo}</button>)}
+                </div>
+              </div>)}
             {naoCabem.length > 0 && (
               <div className="cg-aviso"><AlertTriangle size={18} /><span><b>Não cabem tudo.</b> {naoCabem.map(p => `${p.pedido - p.cabem} de ${p.tipo.nome}`).join(", ")} ficam de fora. Use outro caminhão ou divida em duas viagens.</span></div>)}
             <div className="cg-leg">{plano.porTipo.map(p => <span key={p.tipo.id}><i style={{ background: corDe(tiposP, p.tipo.id) }} />{p.tipo.nome}: {p.cabem}{p.cabem < p.pedido ? ` de ${p.pedido}` : ""}</span>)}</div>

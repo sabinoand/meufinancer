@@ -157,28 +157,37 @@ function recortar(t, X, Y, ox, oy, out) {
   else if (k === 5) { recortar(t, X, p, ox, oy, out); recortar(t, X, Y - p, ox, oy + p, out); }
 }
 
-function camadasPara(cam, tipo, qtd, dz, pares) {
+function camadasPara(cam, tipo, qtd, seq) {
   const sl = cam.aberta ? (cam.sobraLado || 0) : 0, st = cam.aberta ? (cam.sobraTras || 0) : 0;
-  const nCam = Math.min(tipo.max || 99, Math.floor((cam.a + EPS) / dz));
+  const nCam = seq.length;
   if (nCam < 1) return null;
-  const ors = pares.map(([w, h]) => [Math.ceil(w - 1e-9), Math.ceil(h - 1e-9), w, h]);
   const Xmax = Math.floor(cam.c + st), Ymax = Math.floor(cam.l + 2 * sl);
-  if (!ors.some(o => o[0] <= Xmax && o[1] <= Ymax)) return null;
-  const tabs = [tabela(Xmax, Ymax, ors)];
-  if (ors.length > 1) for (const o of ors) tabs.push(tabela(Xmax, Ymax, [o]));
-
+  const mkTabs = (os) => { const t = [tabela(Xmax, Ymax, os)]; if (os.length > 1) for (const o of os) t.push(tabela(Xmax, Ymax, [o])); return t; };
+  const gcache = new Map();
+  const Gs = seq.map(([dz, pares]) => {
+    if (!gcache.has(dz)) {
+      const os = pares.map(([w, h]) => [Math.ceil(w - 1e-9), Math.ceil(h - 1e-9), w, h]).filter(o => o[0] <= Xmax && o[1] <= Ymax);
+      gcache.set(dz, os.length ? { dz, tabs: mkTabs(os), t: "g" + dz, ors: os } : null);
+    }
+    return gcache.get(dz);
+  });
+  if (Gs.some(g => !g)) return null;
+  const zs = []; { let z = 0; for (const g of Gs) { zs.push(z); z += g.dz; } if (z > cam.a + EPS) return null; }
+  const grupoK = (k) => Gs[k];
+  const ors = Gs[0].ors;
   const bases = new Map();
-  const baseDe = (ti, Xp, Yp) => { const k = ti + ":" + Xp + ":" + Yp; if (!bases.has(k)) { const o = []; recortar(tabs[ti], Xp, Yp, 0, 0, o); bases.set(k, o); } return bases.get(k); };
+  const baseDe = (G, ti, Xp, Yp) => { const k = G.t + ti + ":" + Xp + ":" + Yp; if (!bases.has(k)) { const o = []; recortar(G.tabs[ti], Xp, Yp, 0, 0, o); bases.set(k, o); } return bases.get(k); };
   // todas as formas de montar a camada k (apoiada na camada de baixo), da que leva mais caixas para a que leva menos
   const candidatos = (k, Lc, ultima) => {
-    const alto = k > 0, z = k * dz, cheio = Lc >= Math.floor(cam.c);
+    const G = grupoK(k), tabs = G.tabs, dz = G.dz;
+    const alto = k > 0, z = zs[k], cheio = Lc >= Math.floor(cam.c);
     const xs = alto && st > 0 && cheio ? [Math.floor(Lc + st), Math.floor(Lc)] : [Math.floor(Lc)];
     const H = Math.floor(cam.l + (alto ? 2 * sl : 0));
     const yps = alto && sl > 0 ? [H, Math.floor(cam.l + sl), Math.floor(cam.l)] : [H];
     const L = limites(cam, z), lista = [], vistos = new Set();
     for (let ti = 0; ti < tabs.length; ti++) for (const Xp of xs) for (const Yp of yps) {
       const folga = H - Yp, ts = folga > 0 ? [0, Math.floor(folga / 2), folga] : [0];
-      const base = baseDe(ti, Xp, Yp);
+      const base = baseDe(G, ti, Xp, Yp);
       if (!base.length) continue;
       for (const tt of ts) for (const fx of [0, 1]) for (const fy of [0, 1]) {
         const y0 = (alto ? -sl : 0) + tt, colocadas = []; let fora = 0, h = 0;
@@ -209,12 +218,12 @@ function camadasPara(cam, tipo, qtd, dz, pares) {
         const cs = candidatos(k, Lc, e.ultima);
         if (!cs.length) { finais.push(e); continue; }
         const pegos = new Set(cs.slice(0, largura > 1 ? 3 : 1));
-        if (largura > 1) for (let s = 0; s < tabs.length; s++) { const c = cs.find(q => q.sig === s); if (c) pegos.add(c); }
+        if (largura > 1) for (let s = 0; s < grupoK(k).tabs.length; s++) { const c = cs.find(q => q.sig === s); if (c) pegos.add(c); }
         for (const c of pegos) novos.push({ camadas: e.camadas.concat([c.c]), ultima: c.c, tot: e.tot + c.c.length, sig: c.sig });
       }
       novos.sort((p, q) => q.tot - p.tot);
       const guarda = new Set(novos.slice(0, largura));
-      if (largura > 1) for (let s = 0; s < tabs.length; s++) { const c = novos.find(q => q.sig === s); if (c) guarda.add(c); }
+      if (largura > 1) for (let s = 0; s < grupoK(k).tabs.length; s++) { const c = novos.find(q => q.sig === s); if (c) guarda.add(c); }
       estados = [...guarda];
     }
     const todos = finais.concat(estados);
@@ -246,17 +255,72 @@ function camadasPara(cam, tipo, qtd, dz, pares) {
   return { colocadas };
 }
 
-function planejarCamadas(cam, tipo, qtd) {
+// Todas as sequências de alturas de camada (cada camada com uma "altura" de caixa) que cabem no veículo.
+function sequencias(cam, tipo, deitar) {
   const grupos = new Map();
-  for (const [dx, dy, dz] of orientacoes(tipo)) { if (!grupos.has(dz)) grupos.set(dz, []); grupos.get(dz).push([dx, dy]); }
-  let melhor = null;
-  for (const [dz, pares] of grupos) {
-    const r = camadasPara(cam, tipo, qtd, dz, pares);
-    if (!r) continue;
-    const v = r.colocadas.length, comp = r.colocadas.reduce((m, b) => Math.max(m, b.x + b.dx), 0);
-    if (!melhor || v > melhor.v || (v === melhor.v && comp < melhor.comp - EPS)) melhor = { r, v, comp };
+  for (const [dx, dy, dz] of orientacoes({ ...tipo, deitar })) { if (!grupos.has(dz)) grupos.set(dz, []); grupos.get(dz).push([dx, dy]); }
+  const dzs = [...grupos.keys()].sort((a, b) => b - a), max = tipo.max || 99, out = [];
+  const rec = (pref, soma) => {
+    // combinação (multiconjunto) maximal: nenhuma altura mais cabe em cima
+    const cabe = dzs.some(d => soma + d <= cam.a + EPS);
+    if (pref.length >= max || !cabe) { if (pref.length) out.push(pref.slice()); return; }
+    for (const d of dzs) {
+      if (pref.length && d > pref[pref.length - 1]) continue; // ordem decrescente: mais alta embaixo
+      if (soma + d > cam.a + EPS) continue;
+      pref.push(d); rec(pref, soma + d); pref.pop();
+    }
+  };
+  rec([], 0);
+  return out.map(sq => ({ dzs: sq, seq: sq.map(d => [d, grupos.get(d)]) }));
+}
+function avaliar(cam, tipo, qtd, sq) {
+  const r = camadasPara(cam, tipo, qtd, sq.seq);
+  if (!r) return null;
+  const v = r.colocadas.length, comp = r.colocadas.reduce((m, b) => Math.max(m, b.x + b.dx), 0);
+  return { r, v, comp, dzs: sq.dzs };
+}
+function planejarCamadas(cam, tipo, qtd) {
+  const opcoes = planejarOpcoes(cam, tipo, qtd, 1);
+  return opcoes[0] ? opcoes[0].r : null;
+}
+// várias opções de montagem por camadas: só em pé; e misturando camadas deitadas. Devolve as melhores, distintas.
+export function planejarOpcoes(cam, tipo, qtd, quantas = 4) {
+  const lista = [];
+  const base = sequencias(cam, tipo, !!tipo.deitar);
+  for (const sq of base) { const a = avaliar(cam, tipo, qtd, sq); if (a) lista.push({ ...a, deitada: false }); }
+  if (!tipo.deitada_ok && tipo.topoDeitada) {
+    for (const sq of sequencias(cam, tipo, true)) {
+      if (base.some(b => b.dzs.join() === sq.dzs.join())) continue;
+      const a = avaliar(cam, tipo, qtd, sq); if (a) lista.push({ ...a, deitada: true });
+    }
   }
-  return melhor && melhor.r;
+  lista.sort((p, q) => Math.min(q.v, qtd) - Math.min(p.v, qtd) || p.comp - q.comp);
+  const vistos = new Set(), out = [];
+  for (const o of lista) { const k = o.dzs.join(); if (vistos.has(k)) continue; vistos.add(k); out.push(o); if (out.length >= quantas) break; }
+  return out;
+}
+
+// Várias opções de carregamento para o mesmo pedido (só quando é um único tipo de caixa).
+export function planejarVarias(caminhao, tipos, pedido, quantas = 4) {
+  const porId = new Map(tipos.map(t => [t.id, t]));
+  const ids = [...new Set(pedido.map(p => p.tipoId))];
+  const qtd = pedido.reduce((sm, p) => sm + p.qtd, 0);
+  const tipo = ids.length === 1 ? porId.get(ids[0]) : null;
+  const unica = [{ rotulo: "Melhor encaixe", plano: planejar(caminhao, tipos, pedido) }];
+  if (!tipo) return unica;
+  const emPe = new Set(orientacoes({ ...tipo, deitar: false }).map(o => o[2]));
+  const ops = planejarOpcoes(caminhao, tipo, qtd, quantas + 2);
+  const out = [];
+  for (const o of ops) {
+    const pe = o.dzs.filter(d => emPe.has(d)).length, de = o.dzs.length - pe;
+    const rotulo = de === 0 ? `${pe} camadas em pé` : pe === 0 ? `${de} camadas deitadas` : `${pe} em pé + ${de} deitada${de > 1 ? "s" : ""}`;
+    out.push({ rotulo, plano: resumir(caminhao, tipos, pedido, o.r.colocadas) });
+  }
+  if (!out.length) return unica;
+  // opções com o mesmo número de caixas ficam na ordem de menor comprimento ocupado; o melhor encaixe geral vem junto se for diferente
+  const ja = out[0].plano.caixas.length;
+  if (unica[0].plano.caixas.length > ja) out.unshift(unica[0]);
+  return out.slice(0, quantas);
 }
 
 // tipos: [{ id, nome, c, l, a, max (caixas por pilha), deitar }], pedido: [{ tipoId, qtd }]
