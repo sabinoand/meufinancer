@@ -5,6 +5,7 @@
 
 const EPS = 1e-6;
 const APOIO_MIN = 0.8;
+const APOIO_MANUAL = 0.08; // edição manual: basta uma pontinha de apoio, desde que o centro fique entre os apoios
 const APOIO_MIN_FORA = 0.4; // caixa que sobra para fora da carroceria: 40% da base apoiada e o centro sobre o apoio (a fileira vizinha segura o resto)
 
 // Limites onde a caixa pode ficar. No piso vale a carroceria; da 2ª camada para cima, carroceria aberta
@@ -197,9 +198,10 @@ export function conferirCaixa(caminhao, colocadas, tipo, x, y, dx, dy, dz, zForc
       if (ox > EPS && oy > EPS) { area += ox * oy; nivel = Math.max(nivel, b.nivel); cap = Math.min(cap, b.cap); ax0 = Math.min(ax0, b.x); ax1 = Math.max(ax1, b.x + b.dx); ay0 = Math.min(ay0, b.y); ay1 = Math.max(ay1, b.y + b.dy); }
     }
   }
-  const fora = saiDoPiso(caminhao, x, y, dx, dy);
-  if (z > EPS && area < (fora ? APOIO_MIN_FORA : APOIO_MIN) * dx * dy - EPS) return { ok: false, motivo: "Falta apoio embaixo: a caixa ficaria no ar." };
-  if (z > EPS && fora && (x + dx / 2 < ax0 - 0.5 || x + dx / 2 > ax1 + 0.5 || y + dy / 2 < ay0 - 0.5 || y + dy / 2 > ay1 + 0.5)) return { ok: false, motivo: "Sobra demais para fora: o centro da caixa ficaria sem apoio." };
+  // Na edição manual quem manda é o usuário: basta a caixa pousar em alguma coisa (até só pelas pontas,
+  // por cima de duas caixas) e o centro dela ficar entre os apoios, senão tomba.
+  if (z > EPS && area < APOIO_MANUAL * dx * dy - EPS) return { ok: false, motivo: "Falta apoio embaixo: a caixa ficaria no ar." };
+  if (z > EPS && (x + dx / 2 < ax0 - 0.5 || x + dx / 2 > ax1 + 0.5 || y + dy / 2 < ay0 - 0.5 || y + dy / 2 > ay1 + 0.5)) return { ok: false, motivo: "O centro da caixa ficaria sem apoio: ela tombaria." };
   if (z > EPS && nivel + 1 > cap) return { ok: false, motivo: `Limite de ${cap} caixas empilhadas.` };
   return { ok: true, caixa: { x, y, z, dx, dy, dz, tipo, nivel: z > EPS ? nivel + 1 : 1, cap: Math.min(cap, tipo.max) } };
 }
