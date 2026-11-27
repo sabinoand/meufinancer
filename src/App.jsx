@@ -15,9 +15,10 @@ import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
 import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.31.3";
+const VERSION = "0.31.4";
 const NOVIDADES = [
   "Baú/sider: o último andar pode usar caixas deitadas para aproveitar a altura que sobra.",
+  "Carregamento com mais de um tipo de caixa: cada tipo ocupa um bloco do fundo à porta (sequência de descarga), com camadas em pé/deitadas e opções de ordem.",
   "Carregamento: agora mostra várias opções de montagem (camadas em pé e deitadas) para você escolher. No baú, 240 de 240 caixas.",
   "Carregamento: arraste a caixa para posicioná-la (sem confirmar), selecione várias caixas, copie e cole fileiras, e carroceria com sobra para fora a partir da 2ª camada",
   "Novo módulo Carregamento: cadastre caminhões e tipos de caixa e veja a melhor forma de carregar, com vista de cima por camada, 3D e ordem de carga",

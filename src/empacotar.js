@@ -300,6 +300,36 @@ export function planejarOpcoes(cam, tipo, qtd, quantas = 4) {
   return out;
 }
 
+// Mais de um tipo de caixa: cada tipo ocupa um bloco do baú (do fundo para a porta, na ordem dada),
+// cada bloco montado por camadas. Assim a descarga segue uma sequência e o espaço é bem aproveitado.
+function planejarBlocos(cam, tipos, pedido, ordem) {
+  const porId = new Map(tipos.map(t => [t.id, t]));
+  const qtd = {};
+  for (const p of pedido) qtd[p.tipoId] = (qtd[p.tipoId] || 0) + p.qtd;
+  let off = 0; const todas = [];
+  ordem.forEach((id, i) => {
+    const t = porId.get(id), restante = Math.floor(cam.c - off + EPS);
+    if (!t || restante < 1 || !qtd[id]) return;
+    const sub = { ...cam, c: restante, sobraTras: i === ordem.length - 1 ? cam.sobraTras : 0 };
+    const op = planejarOpcoes(sub, t, qtd[id], 1)[0];
+    if (!op) return;
+    for (const b of op.r.colocadas) todas.push({ ...b, x: b.x + off });
+    off += Math.ceil(op.comp - 1e-9);
+  });
+  return { colocadas: todas, comp: off, ordem };
+}
+function permutar(v) { return v.length <= 1 ? [v] : v.flatMap((x, i) => permutar(v.filter((_, j) => j !== i)).map(p => [x, ...p])); }
+function blocosOpcoes(cam, tipos, pedido) {
+  const ids = [...new Set(pedido.map(p => p.tipoId))].filter(id => tipos.some(t => t.id === id));
+  if (ids.length < 2) return [];
+  const porId = new Map(tipos.map(t => [t.id, t]));
+  let ordens = permutar(ids);
+  if (ordens.length > 6) { const gr = ids.slice().sort((a, b) => porId.get(b).c * porId.get(b).l - porId.get(a).c * porId.get(a).l); ordens = [gr, gr.slice().reverse()]; }
+  const lista = ordens.map(o => planejarBlocos(cam, tipos, pedido, o));
+  lista.sort((p, q) => q.colocadas.length - p.colocadas.length || p.comp - q.comp);
+  return lista;
+}
+
 // Várias opções de carregamento para o mesmo pedido (só quando é um único tipo de caixa).
 export function planejarVarias(caminhao, tipos, pedido, quantas = 4) {
   const porId = new Map(tipos.map(t => [t.id, t]));
@@ -307,7 +337,13 @@ export function planejarVarias(caminhao, tipos, pedido, quantas = 4) {
   const qtd = pedido.reduce((sm, p) => sm + p.qtd, 0);
   const tipo = ids.length === 1 ? porId.get(ids[0]) : null;
   const unica = [{ rotulo: "Melhor encaixe", plano: planejar(caminhao, tipos, pedido) }];
-  if (!tipo) return unica;
+  if (!tipo) {
+    const bl = blocosOpcoes(caminhao, tipos, pedido).slice(0, quantas).map(b => ({
+      rotulo: "Do fundo à porta: " + b.ordem.map(id => porId.get(id).nome).join(" → "),
+      plano: resumir(caminhao, tipos, pedido, b.colocadas) }));
+    if (bl.length && unica[0].plano.caixas.length > bl[0].plano.caixas.length) bl.unshift({ rotulo: "Encaixe misturado", plano: unica[0].plano });
+    return bl.length ? bl.slice(0, quantas) : unica;
+  }
   const emPe = new Set(orientacoes({ ...tipo, deitar: false }).map(o => o[2]));
   const ops = planejarOpcoes(caminhao, tipo, qtd, quantas + 2);
   const out = [];
@@ -342,7 +378,8 @@ export function planejar(caminhao, tipos, pedido) {
   ];
   // um só tipo de caixa: o planejamento por camadas aproveita bem mais; se já leva tudo, é a resposta
   const unico = unidades.length > 0 && unidades.every(u => u.tipo === unidades[0].tipo);
-  const pc = unico ? planejarCamadas(caminhao, unidades[0].tipo, unidades.length) : null;
+  let pc = unico ? planejarCamadas(caminhao, unidades[0].tipo, unidades.length) : null;
+  if (!unico) { const bl = blocosOpcoes(caminhao, tipos, pedido)[0]; if (bl && bl.colocadas.length) pc = { colocadas: bl.colocadas, blocos: true }; }
   if (pc && pc.colocadas.length === unidades.length) return resumir(caminhao, tipos, pedido, pc.colocadas);
   let melhor = null;
   // "parede": monta do fundo para a porta, subindo as pilhas; "chao": completa o piso antes de empilhar.
@@ -355,7 +392,7 @@ export function planejar(caminhao, tipos, pedido) {
   }
   // Busca extra: várias tentativas com sorteio de sentido das caixas (mistura sentidos para
   // aproveitar sobras), dentro de um limite de tempo. Só se o carregamento ainda não coube tudo.
-  if (!pc && unidades.length <= 700 && melhor.r.sobrou.length > 0) {
+  if ((!pc || pc.blocos) && unidades.length <= 700 && melhor.r.sobrou.length > 0) {
     let semente = unidades.length * 7919 + Math.round(caminhao.c * 3 + caminhao.l);
     const rnd = () => { semente = (semente + 0x6D2B79F5) | 0; let t = Math.imul(semente ^ (semente >>> 15), 1 | semente); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
     const ordBase = ordens[0];
