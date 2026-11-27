@@ -15,7 +15,7 @@ import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
 import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.25.0";
+const VERSION = "0.26.0";
 const NOVIDADES = [
   "Carregamento: arraste a caixa para posicioná-la (sem confirmar), selecione várias caixas, copie e cole fileiras, e carroceria com sobra para fora a partir da 2ª camada",
   "Novo módulo Carregamento: cadastre caminhões e tipos de caixa e veja a melhor forma de carregar, com vista de cima por camada, 3D e ordem de carga",
