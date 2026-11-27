@@ -2,6 +2,7 @@
 const EST = [{ k: "estoque", n: "Estoque" }, { k: "historico", n: "Histórico" }];
 export const SECOES = {
   estoque: EST, materia: EST, almoxarifado: EST,
+  carregamento: [{ k: "plano", n: "Planejar" }, { k: "hist", n: "Salvos" }, { h: "Cadastros" }, { k: "cam", n: "Caminhões" }, { k: "cx", n: "Tipos de caixa" }],
   fichas: [{ k: "fichas", n: "Fichas das cadeiras" }, { k: "calcular", n: "Calcular pedidos" }],
   rh: [
     { k: "visao", n: "Visão geral" },

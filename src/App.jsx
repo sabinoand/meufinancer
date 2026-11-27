@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, UserCheck, Search, ChevronRight, ShieldCheck } from "lucide-react";
+import { Home, Building2, Users, LogOut, Clock, Hourglass, ClipboardList, CalendarDays, Package, Layers, FileText, Warehouse, PackagePlus, Bell, Ruler, Truck, UserCheck, Search, ChevronRight, ShieldCheck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import Auth from "./Auth.jsx";
 import { ConviteSenha, LinkGerado, chamarConvite } from "./Convite.jsx";
@@ -8,14 +8,16 @@ import Estoque from "./Estoque.jsx";
 import MateriaPrima from "./MateriaPrima.jsx";
 import Requisicoes from "./Requisicoes.jsx";
 import Almoxarifado from "./Almoxarifado.jsx";
+import Carregamento from "./Carregamento.jsx";
 import Solicitacoes from "./Solicitacoes.jsx";
 import FichasTecnicas from "./FichasTecnicas.jsx";
 import Rh from "./Rh.jsx";
 import { SECOES } from "./secoes.js";
 import { LegalModal, RodapeLegal, AceiteModal, MinhaConta, PedidosPrivacidade, TERMOS_VERSAO } from "./Legal.jsx";
 
-const VERSION = "0.23.0";
+const VERSION = "0.24.0";
 const NOVIDADES = [
+  "Novo módulo Carregamento: cadastre caminhões e tipos de caixa e veja a melhor forma de carregar, com vista de cima por camada, 3D e ordem de carga",
   "Convite por link: o administrador cadastra nome, empresa e e-mail, gera o link e a pessoa define a própria senha. O cadastro aberto foi fechado",
   "Entrar com e-mail: cadastre o seu em Minha conta e use usuário ou e-mail no login",
   "Trocar senha em Minha conta (pede a senha atual e exige senha forte)",
@@ -175,7 +177,7 @@ function Shell({ perfil, onPerfil, abrirLegal }) {
   const add = (id, nome, desc, icon, g, badge) => itens.push({ id, nome, desc, icon, g, badge });
   if (!almox) { add("pedidos", "Pedidos", "Pedidos de cadeiras e prazos de entrega", ClipboardList, "ped"); add("calendario", "Calendário", "Entregas organizadas por data", CalendarDays, "ped"); }
   if (perfil.papel === "fornecedor" || admin) { add("estoque", "Estoque", "Produtos prontos e movimentações", Package, "mat"); add("materia", "Matéria-prima", "Tecidos, espumas e insumos", Layers, "mat"); }
-  if (perfil.papel === "fornecedor") { add("requisicoes", "Requisições", "Pedidos de material", FileText, "mat"); add("fichas", "Fichas técnicas", "Composição de cada caixa e cálculo do pedido", Ruler, "mat"); }
+  if (perfil.papel === "fornecedor") { add("requisicoes", "Requisições", "Pedidos de material", FileText, "mat"); add("fichas", "Fichas técnicas", "Composição de cada caixa e cálculo do pedido", Ruler, "mat"); add("carregamento", "Carregamento", "Como encaixar as caixas no caminhão", Truck, "ped"); }
   if (almox || admin) add("almoxarifado", "Almoxarifado", "Itens, entradas, saídas e notas fiscais", Warehouse, "mat");
   if (perfil.papel === "fornecedor" || almox || admin) add("solicitacoes", "Solicitações", "Coletas e entregas de material", PackagePlus, "mat", novas);
   if (perfil.papel === "fornecedor") add("rh", "RH", "Equipe, ponto, EPI, vales e 13º", UserCheck, "pes");
@@ -211,6 +213,7 @@ function Shell({ perfil, onPerfil, abrirLegal }) {
         {aba === "materia" && <MateriaPrima perfil={perfil} secao={secAtual} />}
         {aba === "requisicoes" && perfil.papel === "fornecedor" && <Requisicoes perfil={perfil} />}
         {aba === "fichas" && perfil.papel === "fornecedor" && <FichasTecnicas perfil={perfil} secao={secAtual} />}
+        {aba === "carregamento" && perfil.papel === "fornecedor" && <Carregamento perfil={perfil} secao={secAtual} irPara={irSecao} />}
         {aba === "rh" && perfil.papel === "fornecedor" && <Rh perfil={perfil} secao={secAtual} irPara={irSecao} />}
         {aba === "almoxarifado" && (almox || admin) && <Almoxarifado perfil={perfil} secao={secAtual} />}
         {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
@@ -227,6 +230,7 @@ function Shell({ perfil, onPerfil, abrirLegal }) {
         {aba === "materia" && <MateriaPrima perfil={perfil} secao={secAtual} />}
         {aba === "requisicoes" && perfil.papel === "fornecedor" && <Requisicoes perfil={perfil} />}
         {aba === "fichas" && perfil.papel === "fornecedor" && <FichasTecnicas perfil={perfil} secao={secAtual} />}
+        {aba === "carregamento" && perfil.papel === "fornecedor" && <Carregamento perfil={perfil} secao={secAtual} irPara={irSecao} />}
         {aba === "rh" && perfil.papel === "fornecedor" && <Rh perfil={perfil} secao={secAtual} irPara={irSecao} />}
         {aba === "almoxarifado" && (almox || admin) && <Almoxarifado perfil={perfil} secao={secAtual} />}
         {aba === "solicitacoes" && <Solicitacoes perfil={perfil} onMudou={atualizarNovas} />}
