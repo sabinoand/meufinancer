@@ -6,7 +6,7 @@
 const EPS = 1e-6;
 const TOL = 1.5; // cm: encostar de leve numa caixa vizinha não conta como estar em cima/dentro dela
 const APOIO_MIN = 0.8;
-const APOIO_MANUAL = 0.08; // edição manual: basta uma pontinha de apoio, desde que o centro fique entre os apoios
+const APOIO_MANUAL = 0.08; // edição manual: basta uma pontinha de apoio; quem decide o resto é o usuário
 const APOIO_MIN_FORA = 0.4; // caixa que sobra para fora da carroceria: 40% da base apoiada e o centro sobre o apoio (a fileira vizinha segura o resto)
 
 // Limites onde a caixa pode ficar. No piso vale a carroceria; da 2ª camada para cima, carroceria aberta
@@ -200,9 +200,8 @@ export function conferirCaixa(caminhao, colocadas, tipo, x, y, dx, dy, dz, zForc
     }
   }
   // Na edição manual quem manda é o usuário: basta a caixa pousar em alguma coisa (até só pelas pontas,
-  // por cima de duas caixas) e o centro dela ficar entre os apoios, senão tomba.
+  // por cima de duas caixas, ou com o centro para fora do apoio).
   if (z > EPS && area < APOIO_MANUAL * dx * dy - EPS) return { ok: false, motivo: "Falta apoio embaixo: a caixa ficaria no ar." };
-  if (z > EPS && (x + dx / 2 < ax0 - 0.5 || x + dx / 2 > ax1 + 0.5 || y + dy / 2 < ay0 - 0.5 || y + dy / 2 > ay1 + 0.5)) return { ok: false, motivo: "O centro da caixa ficaria sem apoio: ela tombaria." };
   if (z > EPS && nivel + 1 > cap) return { ok: false, motivo: `Limite de ${cap} caixas empilhadas.` };
   return { ok: true, caixa: { x, y, z, dx, dy, dz, tipo, nivel: z > EPS ? nivel + 1 : 1, cap: Math.min(cap, tipo.max) } };
 }
