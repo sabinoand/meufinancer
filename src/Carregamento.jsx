@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useDeferredValue } from "react";
 import { Plus, Pencil, Trash2, Printer, Save, AlertTriangle, Truck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { planejar, orientacoes, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
+import { planejar, orientacoes, limites, resumir, conferirCaixa, encostar, temCaixaEmCima, alturaApoio } from "./empacotar.js";
 
 const num = (v) => parseFloat(String(v).replace(",", "."));
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: d });
@@ -107,6 +107,8 @@ function VistaCima({ cam, plano, tipos, camada, ponteiro, fantasma, sel, marq, o
 function Vista3D({ cam, plano, tipos, camada, edicao }) {
   const ref = useRef(null);
   const [yaw, setYaw] = useState(-0.6);
+  const [vz, setVz] = useState({ k: 1, tx: 0, ty: 0 }); // zoom e deslocamento da vista
+  const [mao, setMao] = useState(false);               // "mão": arrastar desloca a vista
   const [papelao, setPapelao] = useState(true);
   const drag = useRef(null);
   const geo = useRef(null);      // projeção da última pintura, para transformar clique em posição no baú
@@ -125,8 +127,10 @@ function Vista3D({ cam, plano, tipos, camada, edicao }) {
     const cantos = []; for (const x of [0, cam.comp_cm + (cam.sobraTras || 0)]) for (const y of [-(cam.sobraLado || 0), cam.larg_cm + (cam.sobraLado || 0)]) for (const z of [0, cam.alt_cm]) cantos.push(rot(x, y, z));
     const minX = Math.min(...cantos.map(c => c.x)), maxX = Math.max(...cantos.map(c => c.x));
     const minU = Math.min(...cantos.map(c => c.u)), maxU = Math.max(...cantos.map(c => c.u));
-    const esc = Math.min((w - 24) / (maxX - minX || 1), (h - 24) / (maxU - minU || 1));
-    const ox = w / 2 - ((minX + maxX) / 2) * esc, oy = h / 2 + ((minU + maxU) / 2) * esc;
+    const esc0 = Math.min((w - 24) / (maxX - minX || 1), (h - 24) / (maxU - minU || 1));
+    const ox0 = w / 2 - ((minX + maxX) / 2) * esc0, oy0 = h / 2 + ((minU + maxU) / 2) * esc0;
+    // zoom em torno do centro da tela + deslocamento
+    const esc = esc0 * vz.k, ox = w / 2 + (ox0 - w / 2) * vz.k + vz.tx, oy = h / 2 + (oy0 - h / 2) * vz.k + vz.ty;
     const P = (x, y, z) => { const r = rot(x, y, z); return [ox + r.x * esc, oy - r.u * esc]; };
     geo.current = { esc, ox, oy, cy, sy, cp, sp, cx0, cy0, cz0 };
     acertos.current = [];
@@ -204,7 +208,7 @@ function Vista3D({ cam, plano, tipos, camada, edicao }) {
     lista.sort((p, q) => q.d - p.d); // mais longe primeiro
     for (const { b } of lista) desenharCaixa(b, null);
     if (edicao && edicao.fantasma) for (const c of edicao.fantasma.caixas.slice().sort((p, q) => rot(q.x + q.dx / 2, q.y + q.dy / 2, q.z + q.dz / 2).d - rot(p.x + p.dx / 2, p.y + p.dy / 2, p.z + p.dz / 2).d)) desenharCaixa(c, edicao.fantasma);
-  }, [cam, plano, tipos, camada, yaw, papelao, edicao]);
+  }, [cam, plano, tipos, camada, yaw, papelao, edicao, vz]);
 
   useEffect(() => { desenhar(); const f = () => desenhar(); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, [desenhar]);
 
@@ -230,6 +234,18 @@ function Vista3D({ cam, plano, tipos, camada, edicao }) {
     }
     return { caixa: hit ? hit.b : null, ponto, plano: noPlano };
   }
+  const zoomEm = useCallback((fator, sx, sy) => setVz(v => {
+    const w = ref.current ? ref.current.clientWidth : 0, c = [w / 2, 180];
+    const k2 = Math.max(1, Math.min(8, v.k * fator));
+    if (k2 === 1) return { k: 1, tx: 0, ty: 0 };
+    const px = sx == null ? c[0] : sx, py = sy == null ? c[1] : sy;
+    return { k: k2, tx: px - c[0] - (px - c[0] - v.tx) * k2 / v.k, ty: py - c[1] - (py - c[1] - v.ty) * k2 / v.k };
+  }), []);
+  useEffect(() => {
+    const cv = ref.current; if (!cv) return;
+    const f = (e) => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomEm(e.deltaY < 0 ? 1.18 : 1 / 1.18, e.clientX - r.left, e.clientY - r.top); };
+    cv.addEventListener("wheel", f, { passive: false }); return () => cv.removeEventListener("wheel", f);
+  }, [zoomEm]);
   const colocando = !!(edicao && edicao.ativo && (edicao.modo === "add" || edicao.modo === "col"));
   function clicar(e) {
     if (!edicao || !edicao.ativo) return;
@@ -240,21 +256,26 @@ function Vista3D({ cam, plano, tipos, camada, edicao }) {
 
   return (
     <div>
-      <canvas ref={ref} className="cg-3d" style={{ height: 360, cursor: edicao && edicao.ativo ? "crosshair" : undefined }} aria-label="Vista 3D do carregamento. Arraste para girar."
+      <canvas ref={ref} className="cg-3d" onContextMenu={(e) => e.preventDefault()} style={{ height: 360, cursor: mao ? "move" : edicao && edicao.ativo ? "crosshair" : undefined }} aria-label="Vista 3D do carregamento. Arraste para girar."
         onPointerDown={(e) => {
           e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
+          if (mao || e.shiftKey || e.button === 1 || e.button === 2) { drag.current = { pan: true, x: e.clientX, y: e.clientY }; return; }
           if (colocando) { drag.current = { ponto: true }; ponteiro3d(e, "down"); return; }
           // modo selecionar: apertar numa caixa já selecionada e arrastar move o grupo
           const l = edicao && edicao.ativo && edicao.modo === "sel" ? localizar(e) : null;
           if (l && l.caixa && edicao.sel.includes(l.caixa)) { const z = l.caixa.z + l.caixa.dz; const [x, y] = l.plano(z); drag.current = { mover: true, z }; edicao.onMover.down(l.caixa, x, y); }
           else drag.current = { x: e.clientX, mov: 0 };
         }}
-        onPointerMove={(e) => { const d = drag.current; if (!d) return; if (d.ponto) return ponteiro3d(e, "move"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.move(...l.plano(d.z)); return; } const dx = e.clientX - d.x; d.mov += Math.abs(dx); d.x = e.clientX; if (d.mov > 4) setYaw(y => y + dx * 0.01); }}
-        onPointerUp={(e) => { const d = drag.current; drag.current = null; if (!d) return; if (d.ponto) return ponteiro3d(e, "up"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.up(...l.plano(d.z)); return; } if (d.mov <= 4) clicar(e); }} onPointerCancel={() => { drag.current = null; }} />
+        onPointerMove={(e) => { const d = drag.current; if (!d) return; if (d.pan) { const ddx = e.clientX - d.x, ddy = e.clientY - d.y; d.x = e.clientX; d.y = e.clientY; setVz(v => v.k === 1 ? v : { ...v, tx: v.tx + ddx, ty: v.ty + ddy }); return; } if (d.ponto) return ponteiro3d(e, "move"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.move(...l.plano(d.z)); return; } const dx = e.clientX - d.x; d.mov += Math.abs(dx); d.x = e.clientX; if (d.mov > 4) setYaw(y => y + dx * 0.01); }}
+        onPointerUp={(e) => { const d = drag.current; drag.current = null; if (!d) return; if (d.pan) return; if (d.ponto) return ponteiro3d(e, "up"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.up(...l.plano(d.z)); return; } if (d.mov <= 4) clicar(e); }} onPointerCancel={() => { drag.current = null; }} />
       <div className="row" style={{ marginTop: 8 }}>
         <span className="muted">{colocando ? "Gire por aqui:" : "Arraste para girar"}</span>
         <input type="range" min="-3.15" max="3.15" step="0.05" value={yaw} onChange={(e) => setYaw(Number(e.target.value))} aria-label="Girar o carregamento" style={{ flex: 1, minWidth: 120, padding: 0 }} />
         <button type="button" className="btn sm" onClick={() => setYaw(-0.6)}>Voltar</button>
+        <button type="button" className="btn sm" aria-label="Aproximar" onClick={() => zoomEm(1.4)}>＋</button>
+        <button type="button" className="btn sm" aria-label="Afastar" onClick={() => zoomEm(1 / 1.4)}>－</button>
+        <button type="button" className="btn sm" disabled={vz.k === 1} onClick={() => setVz({ k: 1, tx: 0, ty: 0 })}>Ajustar</button>
+        <button type="button" className={"btn sm" + (mao ? " primary" : "")} aria-pressed={mao} onClick={() => setMao(v => !v)}>Mão</button>
         <button type="button" className="btn sm" onClick={() => setPapelao(v => !v)}>{papelao ? "Ver colorido" : "Ver caixa de papelão"}</button>
       </div>
     </div>
@@ -270,6 +291,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
   const [camId, setCamId] = useState("");
   const [itens, setItens] = useState([{ tipoId: "", qtd: "" }]);
   const [vista, setVista] = useState("cima");
+  const [zoom2d, setZoom2d] = useState(1);
   const [camada, setCamada] = useState(1);
   const [todas, setTodas] = useState(true);
   const [modal, setModal] = useState(null);
@@ -393,8 +415,25 @@ export default function Carregamento({ perfil, secao, irPara }) {
     const ex = p.px + p.nx * dx / 2 - dx / 2, ey = p.py + p.ny * dy / 2 - dy / 2;
     const zE = p.z != null ? p.z : alturaApoio(manual, ex, ey, dx, dy);
     const [x1, y1] = encostar(camPlan, manual, ex, ey, dx, dy, 8, zE);
-    const r = conferirCaixa(camPlan, manual, tAdd, x1, y1, dx, dy, dz, p.z);
-    const caixa = r.ok ? r.caixa : { x: x1, y: y1, z: p.z != null ? p.z : alturaApoio(manual, x1, y1, dx, dy), dx, dy, dz, tipo: tAdd, nivel: 1, cap: 1 };
+    let r = conferirCaixa(camPlan, manual, tAdd, x1, y1, dx, dy, dz, p.z);
+    let x = x1, y = y1;
+    if (!r.ok) {
+      // não cabe exatamente onde o ponteiro está: procura o lugar válido mais perto (encostando nas caixas vizinhas e nas paredes)
+      const R = 45, L = limites(camPlan, zE), xs = new Set([x1]), ys = new Set([y1]);
+      const pe = (set, v, c) => { if (Math.abs(v - c) <= R) set.add(Math.round(v * 100) / 100); };
+      for (const v of [0, L.x1 - dx, camPlan.c - dx]) pe(xs, v, ex);
+      for (const v of [L.y0, L.y1 - dy, 0, camPlan.l - dy]) pe(ys, v, ey);
+      for (const q of manual) { for (const v of [q.x + q.dx, q.x - dx, q.x, q.x + q.dx - dx]) pe(xs, v, ex); for (const v of [q.y + q.dy, q.y - dy, q.y, q.y + q.dy - dy]) pe(ys, v, ey); }
+      let melhor = null;
+      for (const cx of xs) for (const cy of ys) {
+        const rr = conferirCaixa(camPlan, manual, tAdd, cx, cy, dx, dy, dz, p.z);
+        if (!rr.ok) continue;
+        const d = Math.hypot(cx - ex, cy - ey);
+        if (!melhor || d < melhor.d) melhor = { d, rr, cx, cy };
+      }
+      if (melhor) { r = melhor.rr; x = melhor.cx; y = melhor.cy; }
+    }
+    const caixa = r.ok ? r.caixa : { x, y, z: p.z != null ? p.z : alturaApoio(manual, x, y, dx, dy), dx, dy, dz, tipo: tAdd, nivel: 1, cap: 1 };
     return { caixas: [caixa], ok: r.ok, motivo: r.motivo };
   }
   // grupo (colar ou mover): mantém a forma, só muda o lugar; cada caixa é conferida com as anteriores
@@ -754,7 +793,14 @@ export default function Carregamento({ perfil, secao, irPara }) {
                 <div className="cg-camadas">
                   {Array.from({ length: Math.max(1, plano.niveis) + (editando ? 1 : 0) }, (_, i) => i + 1).map(n => <button key={n} className={camadaEf === n ? "on" : ""} onClick={() => setCamada(n)}>Camada {n}</button>)}
                 </div>
-                <div className="cg-vista"><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} ponteiro={editando ? ponteiro2d : undefined} fantasma={editando ? fantasma : null} sel={editando ? selValida : undefined} marq={editando ? marq : null} oculta={mov && mov.moveu ? selValida : null} /></div>
+                <div className="row" style={{ margin: "0 0 6px" }}>
+                  <span className="muted">Zoom {Math.round(zoom2d * 100)}%</span>
+                  <button type="button" className="btn sm" aria-label="Aproximar" onClick={() => setZoom2d(z => Math.min(6, +(z * 1.4).toFixed(2)))}>＋</button>
+                  <button type="button" className="btn sm" aria-label="Afastar" onClick={() => setZoom2d(z => Math.max(1, +(z / 1.4).toFixed(2)))}>－</button>
+                  <button type="button" className="btn sm" disabled={zoom2d === 1} onClick={() => setZoom2d(1)}>Ajustar</button>
+                  {zoom2d > 1 && <span className="muted">Role a área para ver o resto.</span>}
+                </div>
+                <div className="cg-vista" style={{ overflow: "auto", maxHeight: zoom2d > 1 ? 560 : undefined }}><div style={{ width: `${zoom2d * 100}%` }}><VistaCima cam={camP} plano={plano} tipos={tiposP} camada={camadaEf} ponteiro={editando ? ponteiro2d : undefined} fantasma={editando ? fantasma : null} sel={editando ? selValida : undefined} marq={editando ? marq : null} oculta={mov && mov.moveu ? selValida : null} /></div></div>
                 <p className="muted">Os números são a ordem de carga: comece pelo fundo, perto da cabine. As caixas cinzas são a camada de baixo.</p>
               </>
             ) : (
