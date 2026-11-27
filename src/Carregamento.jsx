@@ -260,14 +260,15 @@ function Vista3D({ cam, plano, tipos, camada, edicao }) {
         onPointerDown={(e) => {
           e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
           if (mao || e.shiftKey || e.button === 1 || e.button === 2) { drag.current = { pan: true, x: e.clientX, y: e.clientY }; return; }
+          if ((e.ctrlKey || e.metaKey) && edicao && edicao.ativo) { const lc = localizar(e); if (lc && lc.caixa) edicao.onSel(lc.caixa); drag.current = { ctrl: true }; return; }
           if (colocando) { drag.current = { ponto: true }; ponteiro3d(e, "down"); return; }
           // modo selecionar: apertar numa caixa já selecionada e arrastar move o grupo
           const l = edicao && edicao.ativo && edicao.modo === "sel" ? localizar(e) : null;
           if (l && l.caixa && edicao.sel.includes(l.caixa)) { const z = l.caixa.z + l.caixa.dz; const [x, y] = l.plano(z); drag.current = { mover: true, z }; edicao.onMover.down(l.caixa, x, y); }
           else drag.current = { x: e.clientX, mov: 0 };
         }}
-        onPointerMove={(e) => { const d = drag.current; if (!d) return; if (d.pan) { const ddx = e.clientX - d.x, ddy = e.clientY - d.y; d.x = e.clientX; d.y = e.clientY; setVz(v => v.k === 1 ? v : { ...v, tx: v.tx + ddx, ty: v.ty + ddy }); return; } if (d.ponto) return ponteiro3d(e, "move"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.move(...l.plano(d.z)); return; } const dx = e.clientX - d.x; d.mov += Math.abs(dx); d.x = e.clientX; if (d.mov > 4) setYaw(y => y + dx * 0.01); }}
-        onPointerUp={(e) => { const d = drag.current; drag.current = null; if (!d) return; if (d.pan) return; if (d.ponto) return ponteiro3d(e, "up"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.up(...l.plano(d.z)); return; } if (d.mov <= 4) clicar(e); }} onPointerCancel={() => { drag.current = null; }} />
+        onPointerMove={(e) => { const d = drag.current; if (!d || d.ctrl) return; if (d.pan) { const ddx = e.clientX - d.x, ddy = e.clientY - d.y; d.x = e.clientX; d.y = e.clientY; setVz(v => v.k === 1 ? v : { ...v, tx: v.tx + ddx, ty: v.ty + ddy }); return; } if (d.ponto) return ponteiro3d(e, "move"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.move(...l.plano(d.z)); return; } const dx = e.clientX - d.x; d.mov += Math.abs(dx); d.x = e.clientX; if (d.mov > 4) setYaw(y => y + dx * 0.01); }}
+        onPointerUp={(e) => { const d = drag.current; drag.current = null; if (!d || d.ctrl) return; if (d.pan) return; if (d.ponto) return ponteiro3d(e, "up"); if (d.mover) { const l = localizar(e); if (l) edicao.onMover.up(...l.plano(d.z)); return; } if (d.mov <= 4) clicar(e); }} onPointerCancel={() => { drag.current = null; }} />
       <div className="row" style={{ marginTop: 8 }}>
         <span className="muted">{colocando ? "Gire por aqui:" : "Arraste para girar"}</span>
         <input type="range" min="-3.15" max="3.15" step="0.05" value={yaw} onChange={(e) => setYaw(Number(e.target.value))} aria-label="Girar o carregamento" style={{ flex: 1, minWidth: 120, padding: 0 }} />
@@ -520,6 +521,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
   // vista de cima: um só conjunto de eventos que muda conforme o modo
   const ponteiro2d = {
     down: (x, y) => {
+      if (ctrlRef.current) { const bc = caixaNo(x, y); if (bc) { setModoEd("sel"); setPend(null); alternarSel(bc); } return; }
       if (modoEd === "add" || modoEd === "col") return ptDown(x, y);
       if (modoEd === "sel") {
         const b = caixaNo(x, y); if (b && selValida.includes(b)) return movDown(b, x, y);
@@ -544,6 +546,27 @@ export default function Carregamento({ perfil, secao, irPara }) {
     },
   };
   const ponteiro3d = { down: (x, y, z, nx, ny) => ptDown(x, y, nx, ny, z), move: (x, y, z, nx, ny) => ptMove(x, y, nx, ny, z), up: (x, y, z, nx, ny) => ptUp(x, y, nx, ny, z), cancel: ptCancel };
+  // Ctrl (ou Cmd) + clique marca caixa por caixa; Ctrl+C copia, Ctrl+V cola, Ctrl+A tudo, Delete apaga, Ctrl+Z desfaz
+  const ctrlRef = useRef(false);
+  useEffect(() => {
+    const p = (e) => { ctrlRef.current = e.ctrlKey || e.metaKey; };
+    window.addEventListener("pointerdown", p, true); return () => window.removeEventListener("pointerdown", p, true);
+  }, []);
+  useEffect(() => {
+    if (!editando || !manual) return;
+    const f = (e) => {
+      const t = e.target, tag = t && t.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+      const c = e.ctrlKey || e.metaKey, k = (e.key || "").toLowerCase();
+      if (c && k === "c") { e.preventDefault(); copiar(); }
+      else if (c && k === "v") { e.preventDefault(); if (!copia) return setMsgEd("Copie caixas primeiro (Ctrl+C)."); setModoEd("col"); setPend(null); setMsgEd("Arraste no desenho para escolher onde colar."); }
+      else if (c && k === "a") { e.preventDefault(); setSel(manual.slice()); setModoEd("sel"); }
+      else if (c && k === "z") { e.preventDefault(); desfazerUltima(); }
+      else if ((k === "delete" || k === "backspace") && selValida.length) { e.preventDefault(); excluirSel(); }
+      else if (k === "escape" && !pend && selValida.length) setSel([]);
+    };
+    window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f);
+  });
   // Esc cancela o que está sendo arrastado
   useEffect(() => {
     if (!pend) return;
@@ -775,7 +798,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
                   </div>)}
                 <p className="muted" style={{ margin: "6px 0 0" }}>{
                   modoEd === "add" ? "Arraste a caixa até o lugar e solte: ela fica transparente enquanto você arrasta (azul = cabe, vermelha = não cabe). Um clique também coloca. Esc cancela."
-                  : modoEd === "sel" ? (vista === "cima" ? "Arraste um retângulo para pegar várias caixas, ou clique numa caixa. Depois arraste as caixas marcadas para mudar de lugar, ou use Copiar." : "Clique nas caixas para marcar. Depois arraste uma caixa marcada para mudar o grupo de lugar, ou use Copiar.")
+                  : modoEd === "sel" ? (vista === "cima" ? "Arraste um retângulo para pegar várias caixas, ou clique numa caixa. Depois arraste as caixas marcadas para mudar de lugar, ou use Copiar. Segure Ctrl e clique para marcar uma por uma; Ctrl+C copia, Ctrl+V cola, Delete apaga." : "Clique nas caixas para marcar (ou segure Ctrl e clique, uma por uma). Depois arraste uma caixa marcada para mudar o grupo de lugar. Ctrl+C copia, Ctrl+V cola, Delete apaga, Ctrl+Z desfaz.")
                   : modoEd === "col" ? `Arraste o grupo de ${copia ? copia.length : 0} caixa${copia && copia.length === 1 ? "" : "s"} até o lugar e solte para colar. Pode colar quantas vezes quiser.`
                   : "Clique numa caixa para tirá-la."}</p>
                 {pend && fantasma && <p style={{ margin: "6px 0 0", fontSize: 14, fontWeight: 600, color: fantasma.ok ? "#1d4ed8" : "#b91c1c" }} role="status">{fantasma.ok ? `Pode soltar: camada ${nivelMax(fantasma.caixas)}.` : fantasma.motivo}</p>}
@@ -804,7 +827,7 @@ export default function Carregamento({ perfil, secao, irPara }) {
                     <button className={todas ? "on" : ""} onClick={() => setTodas(true)}>Todas as camadas</button>
                     {Array.from({ length: plano.niveis - 1 }, (_, i) => i + 1).map(n => <button key={n} className={!todas && camadaEf === n ? "on" : ""} onClick={() => { setTodas(false); setCamada(n); }}>Até a camada {n}</button>)}
                   </div>)}
-                <Vista3D cam={camP} plano={plano} tipos={tiposP} camada={camada3d} edicao={editando ? { ativo: true, modo: modoEd, fantasma, sel: selValida, onPonteiro: ponteiro3d, onRemover: removerCaixa, onSel: alternarSel, oculta: mov && mov.moveu ? selValida : null, onMover: { down: movDown, move: movMove, up: movUp } } : null} />
+                <Vista3D cam={camP} plano={plano} tipos={tiposP} camada={camada3d} edicao={editando ? { ativo: true, modo: modoEd, fantasma, sel: selValida, onPonteiro: ponteiro3d, onRemover: removerCaixa, onSel: (b) => { setModoEd("sel"); setPend(null); alternarSel(b); }, oculta: mov && mov.moveu ? selValida : null, onMover: { down: movDown, move: movMove, up: movUp } } : null} />
               </>
             )}
 
